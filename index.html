@@ -226,6 +226,22 @@
     padding:6px 10px;margin:6px 0 2px;}
   .verse-editor{margin:8px 0;} .verse-editor textarea{width:100%;min-height:60px;padding:8px;border-radius:8px;
     border:1px solid #c9b78d;background:#fbf6e8;color:#3b3228;font-family:var(--font-ui);font-size:13px;resize:vertical;}
+  /* Ferramentas do versículo (grifos + ações) — aparecem ao passar o mouse */
+  .vtext{transition:background .12s;}
+  .verse-tools{display:inline-flex;align-items:center;gap:5px;margin-left:8px;opacity:0;transition:.12s;
+    vertical-align:middle;font-family:var(--font-ui);}
+  .verse:hover .verse-tools{opacity:1;}
+  .hl-dot{width:15px;height:15px;border-radius:50%;cursor:pointer;border:1px solid rgba(0,0,0,.15);display:inline-flex;
+    align-items:center;justify-content:center;font-size:10px;color:#6b5a34;transition:transform .1s;}
+  .hl-dot:hover{transform:scale(1.25);}
+  .hl-clear{background:#efe4c8 !important;color:#8a5a34;font-weight:700;}
+  .quick2{font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid #c9b78d;background:#efe4c8;color:#6b5a34;
+    cursor:pointer;white-space:nowrap;}
+  .quick2:hover{background:#6b5a34;color:#f4ecd8;}
+  /* Painel de versículos salvos */
+  .saved-verse{border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--card);}
+  .sv-ref{font-weight:700;font-size:12px;color:var(--accent);margin-bottom:3px;}
+  .sv-text{font-size:13px;color:var(--fg);line-height:1.5;}
   .toolbar{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--bg-2);}
   select.picker{font-size:13px;padding:7px 10px;border-radius:9px;border:1px solid var(--border);background:var(--card);color:var(--fg);}
 
@@ -565,6 +581,7 @@ try{
    ============================================================ */
 const DB_KEYS = {
   notes:"kh_notes", bibleInbox:"kh_bible_inbox", bibleNotes:"kh_bible_notes",
+  bibleHighlights:"kh_bible_hl", savedVerses:"kh_saved_verses",
   quickInbox:"kh_quick_inbox", vault:"kh_vault", books:"kh_books", lectures:"kh_lectures",
   studies:"kh_studies", studyFolders:"kh_study_folders", cards:"kh_cards", decks:"kh_decks",
   goals:"kh_goals", agenda:"kh_agenda", systems:"kh_systems", accessLinks:"kh_links",
@@ -600,6 +617,8 @@ const store = {
   notes: load("notes",[]),
   bibleInbox: load("bibleInbox",[]),
   bibleNotes: load("bibleNotes",{}),
+  bibleHighlights: load("bibleHighlights",{}),
+  savedVerses: load("savedVerses",[]),
   quickInbox: load("quickInbox",[]),
   vault: load("vault",[]),
   books: load("books",[]),
@@ -623,7 +642,7 @@ const store = {
   activeLecture:null,
 };
 /* Salva TODem uma vez. FIREBASE (futuro): este é o ponto do debounce -> Firestore. */
-const PERSIST_KEYS = ["notes","bibleInbox","bibleNotes","quickInbox","vault","books","lectures","studies","studyFolders","cards","decks","goals","agenda","systems","accessLinks"];
+const PERSIST_KEYS = ["notes","bibleInbox","bibleNotes","bibleHighlights","savedVerses","quickInbox","vault","books","lectures","studies","studyFolders","cards","decks","goals","agenda","systems","accessLinks"];
 function persist(){
   let overflow=false;
   PERSIST_KEYS.forEach(k=>{
@@ -1358,7 +1377,8 @@ function deleteAgenda(id){ askConfirm("Excluir este compromisso?",()=>{ store.ag
 /* ===== Backup / exportar-importar tudo ===== */
 function exportarBackup(){
   const dump={ _app:"KnowledgeHub", _versao:1, _data:new Date().toISOString(),
-    notes:store.notes, bibleInbox:store.bibleInbox, bibleNotes:store.bibleNotes, quickInbox:store.quickInbox,
+    notes:store.notes, bibleInbox:store.bibleInbox, bibleNotes:store.bibleNotes,
+    bibleHighlights:store.bibleHighlights, savedVerses:store.savedVerses, quickInbox:store.quickInbox,
     vault:store.vault, books:store.books, lectures:store.lectures, studies:store.studies, studyFolders:store.studyFolders,
     cards:store.cards, decks:store.decks, goals:store.goals, agenda:store.agenda, systems:store.systems, accessLinks:store.accessLinks };
   const blob=new Blob([JSON.stringify(dump,null,2)],{type:"application/json"});
@@ -1373,7 +1393,7 @@ function importarBackup(ev){
     let d; try{ d=JSON.parse(r.result); }catch{ toast("Arquivo inválido."); return; }
     if(d._app!=="KnowledgeHub"){ toast("Este arquivo não é um backup do Knowledge Hub."); return; }
     askConfirm("Importar este backup vai SUBSTITUIR todo o conteúdo atual (notas, estudos, cartões, etc.). Deseja continuar?", ()=>{
-      ["notes","bibleInbox","bibleNotes","quickInbox","vault","books","lectures","studies","studyFolders","cards","decks","goals","agenda","systems"].forEach(k=>{ if(d[k]!==undefined) store[k]=d[k]; });
+      ["notes","bibleInbox","bibleNotes","bibleHighlights","savedVerses","quickInbox","vault","books","lectures","studies","studyFolders","cards","decks","goals","agenda","systems"].forEach(k=>{ if(d[k]!==undefined) store[k]=d[k]; });
       if(d.accessLinks!==undefined) store.accessLinks=d.accessLinks;
       persist(); render(); toast("Backup importado com sucesso.");
     }, "Substituir tudo");
@@ -1770,6 +1790,33 @@ function renderBible(){
 function selBook(b){ store.bible.book=b; store.bible.chapter=0; render(); }
 function selChap(i){ store.bible.chapter=+i; render(); }
 function chapDelta(d){ const max=BIBLE[store.bible.book].length-1; store.bible.chapter=Math.max(0,Math.min(max,store.bible.chapter+d)); render(); }
+
+/* Grifos (marca-texto) por versículo */
+const HL_COLORS={ amarelo:"rgba(244,211,94,.5)", verde:"rgba(138,201,38,.45)", azul:"rgba(76,201,240,.4)", rosa:"rgba(244,143,177,.45)" };
+function setHighlight(book,chap,vi,cor){
+  const ref=`${book} ${chap+1}:${vi+1}`;
+  if(cor===null || store.bibleHighlights[ref]===cor){ delete store.bibleHighlights[ref]; }
+  else { store.bibleHighlights[ref]=cor; }
+  persist(); render();
+}
+/* Copiar + salvar versículo na coleção (sem digitar) */
+function salvarVersiculo(book,chap,vi){
+  const text=BIBLE[book][chap][vi], ref=`${book} ${chap+1}:${vi+1}`;
+  const full=`"${text}" (${ref})`;
+  // copia pra área de transferência
+  try{ navigator.clipboard.writeText(full); }catch(e){}
+  // evita duplicar
+  if(store.savedVerses.some(x=>x.ref===ref)){ toast("Versículo já estava salvo (copiado de novo)."); return; }
+  store.savedVerses.unshift({ id:uid(), ref, text, at:Date.now() });
+  persist(); render(); toast("Versículo copiado e salvo ✓");
+}
+function delSavedVerse(id){ store.savedVerses=store.savedVerses.filter(x=>x.id!==id); persist(); render(); }
+function copySavedVerse(id){ const v=store.savedVerses.find(x=>x.id===id); if(!v)return;
+  try{ navigator.clipboard.writeText(`"${v.text}" (${v.ref})`); toast("Copiado ✓"); }catch(e){ toast("Copie manualmente."); } }
+function savedVerseToNote(id){ const v=store.savedVerses.find(x=>x.id===id); if(!v)return;
+  const nid=uid(); store.notes.unshift({id:nid,title:`Versículo — ${v.ref}`,at:Date.now(),
+    content:`> "${v.text}"\n> — ${v.ref}\n\n## Observações\n`});
+  persist(); toast("Nota criada a partir do versículo."); }
 function verseToNote(book,chap,vi){
   const text=BIBLE[book][chap][vi], ref=`${book} ${chap+1}:${vi+1}`, id=uid();
   store.notes.unshift({id,title:`Estudo — ${ref}`,at:Date.now(),content:`---
@@ -2910,10 +2957,20 @@ function viewBible(){
     const ref=`${book} ${chapter+1}:${i+1}`;
     const note=store.bibleNotes[ref];
     const hasNote=!!(note&&note.trim());
+    const hl=store.bibleHighlights[ref]; // cor do grifo, se houver
+    const hlStyle = hl ? `style="background:${HL_COLORS[hl]||hl};border-radius:4px;padding:2px 4px;"` : "";
     return `<span class="verse ${hasNote?"has-note":""}" id="v-${i}">
-      <span class="vnum">${i+1}</span>${v}
-      <span class="quick" onclick="toggleVerseNote('${book}',${chapter},${i})" title="Anotar">✎ Anotar</span>
-      <span class="quick" style="right:88px" onclick="verseToNote('${book}',${chapter},${i})" title="Virar nota de estudo">✦ Nota</span>
+      <span class="vnum">${i+1}</span><span class="vtext" ${hlStyle}>${v}</span>
+      <span class="verse-tools">
+        <span class="hl-dot" style="background:#f4d35e" onclick="setHighlight('${book}',${chapter},${i},'amarelo')" title="Grifar amarelo"></span>
+        <span class="hl-dot" style="background:#8ac926" onclick="setHighlight('${book}',${chapter},${i},'verde')" title="Grifar verde"></span>
+        <span class="hl-dot" style="background:#4cc9f0" onclick="setHighlight('${book}',${chapter},${i},'azul')" title="Grifar azul"></span>
+        <span class="hl-dot" style="background:#f48fb1" onclick="setHighlight('${book}',${chapter},${i},'rosa')" title="Grifar rosa"></span>
+        ${hl?`<span class="hl-dot hl-clear" onclick="setHighlight('${book}',${chapter},${i},null)" title="Remover grifo">✕</span>`:""}
+        <span class="quick2" onclick="salvarVersiculo('${book}',${chapter},${i})" title="Copiar e salvar">📋 Salvar</span>
+        <span class="quick2" onclick="toggleVerseNote('${book}',${chapter},${i})" title="Anotar">✎ Anotar</span>
+        <span class="quick2" onclick="verseToNote('${book}',${chapter},${i})" title="Virar nota de estudo">✦ Nota</span>
+      </span>
       ${hasNote?`<div class="verse-note">📝 ${escapeHtml(note)}</div>`:""}
       <div class="verse-editor hidden" id="ve-${i}">
         <textarea placeholder="Sua anotação para ${ref}…">${escapeHtml(note||"")}</textarea>
@@ -2960,7 +3017,23 @@ function viewBible(){
       </div></div>
     </div>
     <div class="subnav" style="border-left:1px solid var(--border);border-right:none">
-      <div class="toolbar"><strong style="font-size:13px">Inbox Bíblica</strong></div>
+      <div class="toolbar"><strong style="font-size:13px">📌 Versículos salvos</strong>
+        <div class="spacer"></div><span class="sub">${store.savedVerses.length}</span></div>
+      <div style="padding:0 10px 10px;max-height:38%;overflow:auto">
+        ${store.savedVerses.length ? store.savedVerses.map(v=>`
+          <div class="saved-verse">
+            <div class="sv-ref">${escapeHtml(v.ref)}</div>
+            <div class="sv-text">${escapeHtml(v.text)}</div>
+            <div class="row" style="margin-top:6px;gap:4px">
+              <button class="btn btn-sm" onclick="copySavedVerse('${v.id}')" title="Copiar">📋</button>
+              <button class="btn btn-sm" onclick="savedVerseToNote('${v.id}')" title="Virar nota">✦</button>
+              <div class="spacer"></div>
+              <button class="btn btn-sm btn-danger" onclick="delSavedVerse('${v.id}')">✕</button>
+            </div>
+          </div>`).join("")
+        : `<div class="empty" style="padding:16px">Use o botão <b>📋 Salvar</b> num versículo para guardá-lo aqui (já copia para colar em qualquer lugar).</div>`}
+      </div>
+      <div class="toolbar" style="border-top:1px solid var(--border)"><strong style="font-size:13px">Inbox Bíblica</strong></div>
       <div class="inbox-form"><textarea id="bInbox" placeholder="Cole um trecho…"></textarea>
         <div class="row" style="margin-top:8px"><button class="btn btn-accent btn-sm" onclick="addBibleInbox()">Adicionar</button>
         <button class="btn btn-sm" onclick="pasteBibleInbox()">Colar</button></div></div>

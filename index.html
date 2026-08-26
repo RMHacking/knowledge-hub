@@ -43,6 +43,10 @@
     display:flex;align-items:center;justify-content:center;font-weight:700;font-size:22px;color:#fff;margin-bottom:16px;}
   .login-card h1{margin:0;font-size:23px;} .login-card .sub{color:var(--muted);font-size:13px;margin:2px 0 22px;}
   .acct-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+  .login-row{display:flex;align-items:center;justify-content:space-between;margin:2px 0 14px;font-size:13px;}
+  .login-remember{display:flex;align-items:center;gap:6px;color:var(--muted);cursor:pointer;}
+  .login-forgot{color:var(--accent);text-decoration:none;}
+  .login-forgot:hover{text-decoration:underline;}
 
   /* ---------- APP SHELL ---------- */
   #app{display:none;height:100vh;}
@@ -477,7 +481,12 @@
     <input class="field" id="loginUser" type="email" placeholder="E-mail" autocomplete="username" />
     <input class="field" id="loginPass" type="password" placeholder="Senha" autocomplete="current-password" />
     <input class="field hidden" id="loginName" placeholder="Seu nome (só no cadastro)" autocomplete="name" />
+    <div class="login-row">
+      <label class="login-remember"><input type="checkbox" id="rememberEmail"> Lembrar meu e-mail</label>
+      <a href="javascript:void(0)" id="forgotLink" class="login-forgot">Esqueci a senha</a>
+    </div>
     <div id="loginErr" style="color:var(--danger);font-size:13px;margin-bottom:10px;"></div>
+    <div id="loginMsg" style="color:var(--accent);font-size:13px;margin-bottom:10px;"></div>
     <button class="btn btn-accent" style="width:100%" id="loginSubmit">Entrar</button>
     <button class="btn btn-ghost" style="width:100%;margin-top:8px" id="loginToggle">Cadastrar outra conta</button>
   </div>
@@ -758,7 +767,15 @@ async function submitLogin(){
   const pass=document.getElementById("loginPass").value;
   const nameField=document.getElementById("loginName");
   const err=document.getElementById("loginErr"); err.textContent="";
+  const msg=document.getElementById("loginMsg"); if(msg) msg.textContent="";
   if(!email||!pass){ err.textContent="Preencha e-mail e senha."; return; }
+
+  // lembrar e-mail (salvo localmente neste aparelho)
+  const remember=document.getElementById("rememberEmail")?.checked;
+  try{
+    if(remember) localStorage.setItem("kh_remember_email", email);
+    else localStorage.removeItem("kh_remember_email");
+  }catch(e){}
 
   // ---- MODO NUVEM (Firebase) ----
   if(FB_OK){
@@ -823,6 +840,18 @@ function traduzErroFirebase(e){
   if(c.includes("too-many-requests")) return "Muitas tentativas. Aguarde um pouco.";
   if(c.includes("network")) return "Sem conexão. Verifique a internet.";
   return "Erro ao entrar: "+(e.message||c);
+}
+/* Esqueci a senha — envia e-mail de redefinição (Firebase). */
+async function forgotPassword(){
+  const email=document.getElementById("loginUser").value.trim().toLowerCase();
+  const err=document.getElementById("loginErr"); const msg=document.getElementById("loginMsg");
+  err.textContent=""; msg.textContent="";
+  if(!email){ err.textContent="Digite seu e-mail no campo acima e clique de novo em 'Esqueci a senha'."; return; }
+  if(!FB_OK){ err.textContent="Recuperação de senha só funciona com internet/nuvem."; return; }
+  try{
+    await fbAuth.sendPasswordResetEmail(email);
+    msg.textContent="Enviamos um link de redefinição para "+email+". Confira sua caixa de entrada (e o spam).";
+  }catch(e){ err.textContent=traduzErroFirebase(e); }
 }
 /* ===== Dados na nuvem (Firestore) — cache + debounce =====
    Estrutura: users/{uid}/dados/{chave}  (um doc por chave do PERSIST_KEYS) */
@@ -3283,8 +3312,9 @@ document.getElementById("profileBtn").onclick=openProfile;
 document.getElementById("logoutBtn").onclick=logout;
 document.getElementById("sideToggle").onclick=()=>document.getElementById("sidebar").classList.toggle("collapsed");
 document.getElementById("loginSubmit").onclick=submitLogin;
-document.getElementById("loginToggle").onclick=()=>{ store.loginMode=store.loginMode==="login"?"register":"login"; document.getElementById("loginErr").textContent=""; renderLoginChips(); };
+document.getElementById("loginToggle").onclick=()=>{ store.loginMode=store.loginMode==="login"?"register":"login"; document.getElementById("loginErr").textContent=""; document.getElementById("loginMsg").textContent=""; renderLoginChips(); };
 document.getElementById("loginPass").addEventListener("keydown",e=>{ if(e.key==="Enter")submitLogin(); });
+document.getElementById("forgotLink").onclick=forgotPassword;
 window.addEventListener("keydown",e=>{ const mod=e.metaKey||e.ctrlKey;
   if(mod&&e.key.toLowerCase()==="p"){ e.preventDefault(); overlay.classList.contains("show")?closePalette():openPalette(); }
   if(e.key==="Escape"){ closePalette(); closeModal(); }
@@ -3298,6 +3328,12 @@ window.addEventListener("keydown",e=>{ const mod=e.metaKey||e.ctrlKey;
 
 /* BOOT */
 renderLoginChips();
+/* pré-preenche o e-mail lembrado */
+try{
+  const rem=localStorage.getItem("kh_remember_email");
+  if(rem){ const f=document.getElementById("loginUser"); if(f) f.value=rem;
+    const c=document.getElementById("rememberEmail"); if(c) c.checked=true; }
+}catch(e){}
 carregarBibliaCompleta();  // tenta carregar biblia.json (Bíblia completa offline)
 
 /* Auto-login: se o Firebase já tem sessão ativa (voltou ao site), entra direto. */

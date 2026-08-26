@@ -841,11 +841,12 @@ async function carregarPerfilESessao(uid, fallbackProfile){
     const doc=await fbDB.collection("users").doc(uid).get();
     if(doc.exists){ const d=doc.data();
       if(d.ativo===false){ document.getElementById("loginErr").textContent="Esta conta está desativada."; await fbAuth.signOut(); return; }
-      prof={ nome:d.nome, email:d.email, isAdmin:d.role==="admin" };
+      prof={ nome:d.nome, email:d.email, isAdmin:d.role==="admin",
+             school:d.school||"", course:d.course||"", period:d.period||"", bio:d.bio||"", avatar:d.avatar||"" };
     }
   }catch(e){ console.warn("Perfil não carregado:",e.message); }
-  store.user={ id:uid, uid, name:prof.nome||"", email:prof.email||"", isAdmin:!!prof.isAdmin, avatar:prof.avatar||"", course:prof.course||"" };
-  // FIREBASE (futuro): aqui carregaremos TODOS os dados de users/{uid}/dados para o cache.
+  store.user={ id:uid, uid, name:prof.nome||"", email:prof.email||"", isAdmin:!!prof.isAdmin,
+    avatar:prof.avatar||"", school:prof.school||"", course:prof.course||"", period:prof.period||"", bio:prof.bio||"" };
   await carregarDadosNuvem(uid);
   enterApp();
 }
@@ -1507,15 +1508,30 @@ function pickSetAvatar(e){ const f=e.target.files[0]; if(!f) return;
     const el=document.getElementById("setAvatar"); if(el) el.innerHTML=`<img src="${r.result}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">`;
   }; r.readAsDataURL(f);
 }
-function saveSettingsProfile(){
-  const list=accounts(); const acc=list.find(a=>a.id===store.user.id); if(!acc) return;
-  acc.name=document.getElementById("setName").value.trim()||acc.name;
-  acc.school=document.getElementById("setSchool").value.trim();
-  acc.course=document.getElementById("setCourse").value.trim();
-  acc.period=document.getElementById("setPeriod").value.trim();
-  acc.bio=document.getElementById("setBio").value.trim();
-  if(_setAvatar){ acc.avatar=_setAvatar; _setAvatar=null; }
-  saveAccounts(list); store.user=acc; updateAvatar(); render(); toast("Dados salvos.");
+async function saveSettingsProfile(){
+  const u=store.user; if(!u){ toast("Sessão não encontrada."); return; }
+  // atualiza o objeto do usuário em memória
+  u.name=document.getElementById("setName").value.trim()||u.name;
+  u.school=document.getElementById("setSchool").value.trim();
+  u.course=document.getElementById("setCourse").value.trim();
+  u.period=document.getElementById("setPeriod").value.trim();
+  u.bio=document.getElementById("setBio").value.trim();
+  if(_setAvatar){ u.avatar=_setAvatar; _setAvatar=null; }
+
+  if(FB_OK && u.uid){
+    // salva o perfil no Firestore: users/{uid}
+    try{
+      await fbDB.collection("users").doc(u.uid).set({
+        nome:u.name, school:u.school||"", course:u.course||"", period:u.period||"", bio:u.bio||"", avatar:u.avatar||""
+      }, {merge:true});
+      updateAvatar(); render(); toast("Dados salvos na nuvem ✓");
+    }catch(e){ console.warn(e); toast("Erro ao salvar na nuvem: "+(e.message||"")); }
+  } else {
+    // fallback local
+    const list=accounts(); const acc=list.find(a=>a.id===u.id);
+    if(acc){ Object.assign(acc,{name:u.name,school:u.school,course:u.course,period:u.period,bio:u.bio,avatar:u.avatar}); saveAccounts(list); }
+    updateAvatar(); render(); toast("Dados salvos.");
+  }
 }
 async function changePassword(){
   const cur=document.getElementById("curPass").value;
@@ -1523,10 +1539,27 @@ async function changePassword(){
   const n2=document.getElementById("newPass2").value;
   if(!cur||!n1){ toast("Preencha a senha atual e a nova."); return; }
   if(n1!==n2){ toast("A confirmação não bate com a nova senha."); return; }
+
+  if(FB_OK && fbAuth.currentUser){
+    if(n1.length<6){ toast("A nova senha precisa ter ao menos 6 caracteres."); return; }
+    try{
+      // Firebase exige reautenticar antes de trocar a senha
+      const cred=firebase.auth.EmailAuthProvider.credential(fbAuth.currentUser.email, cur);
+      await fbAuth.currentUser.reauthenticateWithCredential(cred);
+      await fbAuth.currentUser.updatePassword(n1);
+      document.getElementById("curPass").value=document.getElementById("newPass").value=document.getElementById("newPass2").value="";
+      toast("Senha alterada com sucesso ✓");
+    }catch(e){
+      if((e.code||"").includes("wrong-password")||(e.code||"").includes("invalid-credential")) toast("Senha atual incorreta.");
+      else toast("Erro: "+traduzErroFirebase(e));
+    }
+    return;
+  }
+  // fallback local
   if(n1.length<4){ toast("Use uma senha com pelo menos 4 caracteres."); return; }
   const list=accounts(); const acc=list.find(a=>a.id===store.user.id);
   const curHash=await sha256(cur);
-  if(acc.hash!==curHash){ toast("Senha atual incorreta."); return; }
+  if(!acc || acc.hash!==curHash){ toast("Senha atual incorreta."); return; }
   acc.hash=await sha256(n1); saveAccounts(list); store.user=acc;
   document.getElementById("curPass").value=document.getElementById("newPass").value=document.getElementById("newPass2").value="";
   toast("Senha alterada com sucesso.");

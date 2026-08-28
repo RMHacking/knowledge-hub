@@ -206,7 +206,8 @@
     font-size:16px;line-height:1.7;}
   [data-theme="light"] .rte-doc{background:#e9edf3;}
   .rte-page:focus{outline:none;}
-  .rte-page p.rec-live{margin:0 0 14px;} /* parágrafos da transcrição ao vivo, legíveis */
+  .rte-page p.rec-live{margin:0 0 14px;color:#111 !important;opacity:1 !important;} /* transcrição ao vivo: sempre legível */
+  .rte-page, .rte-page *{opacity:1;} /* garante que nada fique transparente no editor */
   .rte-page h1{font-size:28px;margin:.4em 0;} .rte-page h2{font-size:22px;margin:.4em 0;}
   .rte-page blockquote{border-left:4px solid #c9b78d;margin:12px 0;padding:4px 16px;color:#555;font-style:italic;background:#faf6ec;}
   .rte-page ul,.rte-page ol{padding-left:26px;} .rte-page a{color:var(--accent);}
@@ -2794,7 +2795,7 @@ function startTranscribe(id){
       else interim += txt;
     }
     const st=document.getElementById("micStatus");
-    if(st && _recState==="recording") st.textContent = interim ? "… "+interim : "🔴 Ouvindo…";
+    if(st && _recState==="recording") st.innerHTML = interim ? '<span style="color:var(--accent)">🔴 '+escapeHtml(interim)+'</span>' : "🔴 Ouvindo…";
   };
   _recognition.onerror = (e)=>{
     const st=document.getElementById("micStatus");

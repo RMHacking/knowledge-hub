@@ -206,6 +206,7 @@
     font-size:16px;line-height:1.7;}
   [data-theme="light"] .rte-doc{background:#e9edf3;}
   .rte-page:focus{outline:none;}
+  .rte-page p.rec-live{margin:0 0 14px;} /* parágrafos da transcrição ao vivo, legíveis */
   .rte-page h1{font-size:28px;margin:.4em 0;} .rte-page h2{font-size:22px;margin:.4em 0;}
   .rte-page blockquote{border-left:4px solid #c9b78d;margin:12px 0;padding:4px 16px;color:#555;font-style:italic;background:#faf6ec;}
   .rte-page ul,.rte-page ol{padding-left:26px;} .rte-page a{color:var(--accent);}
@@ -2717,6 +2718,7 @@ function viewStudyDetail(s){
       <span id="micStatus" class="sub">Clique para transcrever a ${s.type==="lecture"?"palestra":"aula"} ao vivo</span>
       <div class="spacer"></div>
       <button class="btn btn-sm" onclick="gerarResumo('${s.id}')">✨ Gerar resumo</button>
+      <button class="btn btn-sm btn-accent" onclick="baixarTranscricao('${s.id}')">💾 Salvar em arquivo</button>
     </div>` : "";
 
   // Área dividida: transcrição (editor principal) + minhas anotações ao vivo
@@ -2785,8 +2787,10 @@ function startTranscribe(id){
   _recognition.onresult = (ev)=>{
     let interim="";
     for(let i=ev.resultIndex; i<ev.results.length; i++){
-      const txt=ev.results[i][0].transcript;
-      if(ev.results[i].isFinal) appendToEditor(txt.trim()+". ");
+      let txt=ev.results[i][0].transcript.trim();
+      if(ev.results[i].isFinal){
+        if(txt){ if(!/[.!?…]$/.test(txt)) txt+="."; appendToEditor(txt+" "); }
+      }
       else interim += txt;
     }
     const st=document.getElementById("micStatus");
@@ -2831,7 +2835,24 @@ function stopTranscribe(){
 }
 function appendToEditor(text){
   const p=document.getElementById("rtePage"); if(!p) return;
-  p.innerHTML += text.replace(/</g,"&lt;")+" ";
+  text=(text||"").trim(); if(!text) return;
+  // primeira letra maiúscula
+  text = text.charAt(0).toUpperCase()+text.slice(1);
+  const safe = text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+  // agrupa frases num parágrafo "vivo"; abre novo parágrafo a cada ~350 caracteres
+  let cur = p.querySelector("p.rec-live:last-child");
+  if(!cur || cur.textContent.length > 350){
+    cur = document.createElement("p");
+    cur.className = "rec-live";
+    p.appendChild(cur);
+  }
+  cur.innerHTML += (cur.innerHTML ? " " : "") + safe;
+
+  // remove um <p> vazio inicial, se existir
+  const first=p.querySelector("p");
+  if(first && !first.textContent.trim() && p.children.length>1) first.remove();
+
   const doc=p.closest(".rte-doc"); if(doc) doc.scrollTop=doc.scrollHeight;
   updateRteState();
   clearTimeout(_saveTimer); _saveTimer=setTimeout(persistActiveNote,800);
@@ -2885,6 +2906,40 @@ function renderLinks(txt){
   if(!urls.length) return "";
   return `<div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">
     ${urls.map(u=>`<a href="${escapeHtml(u)}" target="_blank" style="font-size:12px;color:var(--accent);word-break:break-all">↗ ${escapeHtml(u)}</a>`).join("")}</div>`;
+}
+/* Converte o HTML da transcrição em texto limpo e legível (parágrafos separados) */
+function htmlToText(html){
+  if(!html) return "";
+  let s=html
+    .replace(/<(p|div|h1|h2|h3|blockquote|li)[^>]*>/gi,"\n\n")  // quebra ao ABRIR bloco
+    .replace(/<\/(p|div|h1|h2|h3|blockquote|li)>/gi,"\n\n")       // e ao fechar
+    .replace(/<br\s*\/?>/gi,"\n")
+    .replace(/<[^>]+>/g,"")            // remove tags restantes
+    .replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/&lt;/gi,"<").replace(/&gt;/gi,">").replace(/&#39;/gi,"'").replace(/&quot;/gi,'"');
+  // normaliza espaços e quebras
+  s=s.split("\n").map(l=>l.replace(/\s+/g," ").trim()).join("\n");
+  return s.replace(/\n{3,}/g,"\n\n").trim();
+}
+/* Baixa a transcrição num arquivo de texto legível (abre em Documentos, Word, Bloco de Notas) */
+function baixarTranscricao(id){
+  const s=store.studies.find(x=>x.id===id); if(!s){ toast("Estudo não encontrado."); return; }
+  const T=STUDY_TYPES[s.type]||{name:"Estudo"};
+  const titulo=studyTitle(s);
+  const dataHoje=new Date().toLocaleDateString("pt-BR");
+  const linhas=[];
+  linhas.push(titulo);
+  linhas.push("=".repeat(Math.min(titulo.length,60)));
+  linhas.push(`Tipo: ${T.name}  ·  Salvo em: ${dataHoje}`);
+  T.fields?.forEach(fl=>{ if(s[fl.k]) linhas.push(`${fl.label}: ${s[fl.k]}`); });
+  linhas.push("");
+  const corpo=htmlToText(s.html||"");
+  if(corpo){ linhas.push(s.type==="lecture"?"TRANSCRIÇÃO DA PALESTRA":s.type==="course"?"TRANSCRIÇÃO DA AULA":"CONTEÚDO"); linhas.push(""); linhas.push(corpo); linhas.push(""); }
+  if(s.liveNotes && s.liveNotes.trim()){ linhas.push(""); linhas.push("MINHAS ANOTAÇÕES"); linhas.push(""); linhas.push(s.liveNotes.trim()); }
+  const texto=linhas.join("\n");
+  const nomeArq=titulo.replace(/[^\w\sÀ-ÿ-]/g,"").trim().replace(/\s+/g,"_")+".txt";
+  const blob=new Blob([texto],{type:"text/plain;charset=utf-8"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=nomeArq; a.click();
+  toast("Arquivo salvo na sua pasta de Downloads ✓");
 }
 function exportStudy(id){
   const s=store.studies.find(x=>x.id===id); if(!s)return; const T=STUDY_TYPES[s.type];

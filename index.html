@@ -190,6 +190,8 @@
   /* ---------- Editor rico (estilo Word) ---------- */
   .rte-toolbar{display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:8px 12px;
     border-bottom:1px solid var(--border);background:var(--bg-2);position:sticky;top:0;z-index:5;}
+  .rte-tools-wrap{display:flex;flex-wrap:wrap;gap:4px;align-items:center;flex:1;}
+  .rte-toggle{flex:0 0 auto;background:var(--card)!important;border:1px solid var(--border)!important;}
   .rte-toolbar .grp{display:flex;gap:2px;align-items:center;padding:0 6px;border-right:1px solid var(--border);}
   .rte-toolbar .grp:last-child{border-right:none;}
   .rte-btn{min-width:32px;height:32px;padding:0 8px;border:1px solid transparent;background:transparent;
@@ -2188,6 +2190,8 @@ function render(){
                               viewNotes();
   if(store.view==="dashboard") startClocks();
   if(store.view==="settings" && store.user?.isAdmin) carregarUsuarios();
+  // restaura estado da barra de ferramentas (minimizada ou não)
+  if(_toolbarHidden){ const wrap=document.getElementById("rteToolsWrap"); if(wrap) wrap.classList.add("hidden"); }
 }
 
 /* cabeçalho CRUD reutilizável */
@@ -2999,7 +3003,9 @@ function viewNotes(){
 function rteToolbar(){
   const fonts=["Sistema","Serif (livro)","Mono","Georgia","Times New Roman","Arial","Courier New"];
   const sizes=[["1","10"],["2","13"],["3","16"],["4","18"],["5","24"],["6","32"],["7","48"]];
-  return `<div class="rte-toolbar">
+  return `<div class="rte-toolbar" id="rteToolbar">
+    <button class="rte-btn rte-toggle" onclick="toggleToolbar()" title="Mostrar/ocultar ferramentas">⚙️</button>
+    <div class="rte-tools-wrap" id="rteToolsWrap">
     <div class="grp">
       <select class="rte-select" onchange="rteBlock(this.value)" title="Estilo de parágrafo">
         <option value="P">Texto</option><option value="H1">Título 1</option><option value="H2">Título 2</option>
@@ -3039,7 +3045,15 @@ function rteToolbar(){
       <button class="rte-btn" onclick="rte('undo')" title="Desfazer">↶</button>
       <button class="rte-btn" onclick="rte('redo')" title="Refazer">↷</button>
     </div>
+    </div>
   </div>`;
+}
+let _toolbarHidden=(()=>{ try{ return localStorage.getItem("kh_toolbar_hidden")==="1"; }catch(e){ return false; } })();
+function toggleToolbar(){
+  _toolbarHidden=!_toolbarHidden;
+  const wrap=document.getElementById("rteToolsWrap");
+  if(wrap) wrap.classList.toggle("hidden",_toolbarHidden);
+  try{ localStorage.setItem("kh_toolbar_hidden", _toolbarHidden?"1":"0"); }catch(e){}
 }
 function rte(cmd,val){ document.getElementById("rtePage")?.focus(); document.execCommand(cmd,false,val||null); updateRteState(); persistActiveNote(); }
 function rteBlock(tag){ document.getElementById("rtePage")?.focus(); document.execCommand("formatBlock",false,tag); persistActiveNote(); }

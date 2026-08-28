@@ -396,16 +396,19 @@
   /* Área dividida: transcrição + anotações ao vivo */
   .rec-split{flex:1;display:flex;overflow:hidden;}
   .rec-col{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden;}
-  .rec-col-notes{flex:0 0 320px;border-left:1px solid var(--border);background:var(--bg-2);}
+  .rec-col-notes{flex:0 0 260px;border-left:1px solid var(--border);background:var(--bg-2);}
   .rec-col-head{padding:8px 16px;font-size:12px;font-weight:600;color:var(--muted);
     border-bottom:1px solid var(--border);background:var(--bg-2);}
   .live-notes{flex:1;width:100%;border:none;outline:none;resize:none;padding:16px;background:var(--bg-2);
     color:var(--fg);font-size:14px;line-height:1.7;font-family:var(--font-ui);}
   /* Editor da transcrição ao vivo: usa a largura toda da coluna, sem margens gigantes */
-  .rec-split .rte-doc{padding:0;background:var(--bg);}
+  .rec-split .rte-doc{padding:0;background:#fff;}
   .rec-split .rte-page{max-width:none;width:100%;min-height:100%;border-radius:0;box-shadow:none;
-    padding:26px 34px;font-size:17px;line-height:1.75;}
-  @media(max-width:900px){.rec-split{flex-direction:column;}.rec-col-notes{flex:0 0 200px;border-left:none;border-top:1px solid var(--border);}}
+    padding:24px 40px;font-size:18px;line-height:1.8;}
+  .resumo-auto{background:#fff6d8;color:#4a3d10;border-left:4px solid #e3b341;padding:12px 16px;
+    margin-bottom:18px;border-radius:8px;font-size:15px;line-height:1.6;}
+  /* Em telas mais estreitas, empilha as anotações embaixo (transcrição ganha largura total) */
+  @media(max-width:1100px){.rec-split{flex-direction:column;}.rec-col-notes{flex:0 0 180px;border-left:none;border-top:1px solid var(--border);}}
 
   /* Estudos — abas por tipo */
   .study-tabs{display:flex;gap:10px;flex-wrap:wrap;}
@@ -2867,18 +2870,22 @@ function appendToEditor(text){
 function gerarResumo(id){
   const s=store.studies.find(x=>x.id===id); if(!s) return;
   const p=document.getElementById("rtePage");
-  const texto=(p?p.innerText:htmlToMarkdown(s.html||"")).trim();
+  if(!p) return;
+  // remove qualquer resumo anterior antes de gerar um novo (evita empilhar)
+  p.querySelectorAll(".resumo-auto").forEach(el=>el.remove());
+  // limpa também resumos antigos (versão anterior, com estilo embutido)
+  p.querySelectorAll("div[style*='fff6d8']").forEach(el=>el.remove());
+  const texto=p.innerText.trim();
   if(texto.split(/\s+/).length < 30){ toast("Texto muito curto para resumir. Transcreva mais conteúdo primeiro."); return; }
 
   const resumo = resumirTexto(texto);
-  // insere o resumo no topo do editor, destacado
-  if(p){
-    const bloco=`<div style="background:#fff6d8;color:#4a3d10;border-left:4px solid #e3b341;padding:12px 16px;margin-bottom:16px;border-radius:8px">`
-      +`<strong>📝 Resumo automático</strong><br>${resumo.replace(/\n/g,"<br>")}</div>`;
-    p.innerHTML = bloco + p.innerHTML;
-    persistActiveNote();
-    toast("Resumo gerado e inserido no topo.");
-  }
+  const bloco=document.createElement("div");
+  bloco.className="resumo-auto";
+  bloco.setAttribute("contenteditable","false");
+  bloco.innerHTML=`<strong>📝 Resumo automático</strong><br>${escapeHtml(resumo).replace(/\n/g,"<br>")}`;
+  p.insertBefore(bloco, p.firstChild);
+  persistActiveNote();
+  toast("Resumo gerado (substitui o anterior).");
 }
 function resumirTexto(texto){
   // 1) separa em frases

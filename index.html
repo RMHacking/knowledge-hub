@@ -401,6 +401,10 @@
     border-bottom:1px solid var(--border);background:var(--bg-2);}
   .live-notes{flex:1;width:100%;border:none;outline:none;resize:none;padding:16px;background:var(--bg-2);
     color:var(--fg);font-size:14px;line-height:1.7;font-family:var(--font-ui);}
+  /* Editor da transcrição ao vivo: usa a largura toda da coluna, sem margens gigantes */
+  .rec-split .rte-doc{padding:0;background:var(--bg);}
+  .rec-split .rte-page{max-width:none;width:100%;min-height:100%;border-radius:0;box-shadow:none;
+    padding:26px 34px;font-size:17px;line-height:1.75;}
   @media(max-width:900px){.rec-split{flex-direction:column;}.rec-col-notes{flex:0 0 200px;border-left:none;border-top:1px solid var(--border);}}
 
   /* Estudos — abas por tipo */

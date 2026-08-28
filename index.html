@@ -2669,7 +2669,7 @@ function openStudy(id){
   }
   store.activeStudy=id; render();
   setTimeout(()=>{ document.getElementById("rtePage") && updateRteState(); },40); }
-function closeStudy(){ if(_recState!=="off") stopTranscribe(); store.activeStudy=null; render(); }
+function closeStudy(){ if(_recState!=="off") stopTranscribe(); _transcribeMode=false; store.activeStudy=null; render(); }
 function deleteStudy(id){ askConfirm("Deletar este estudo? Não dá para desfazer.", ()=>{
   store.studies=store.studies.filter(x=>x.id!==id); store.activeStudy=null; persist(); render(); }); }
 function updateStudyField(id,k,v){ const s=store.studies.find(x=>x.id===id); if(!s)return; s[k]=v;
@@ -2734,20 +2734,39 @@ function viewStudyDetail(s){
 
   // Barra de transcrição por voz — só para palestra e curso
   const showTranscribe = (s.type==="lecture"||s.type==="course");
-  const transcribeBar = showTranscribe ? `
+  const transcribeBar = !showTranscribe ? "" : (!_transcribeMode ? `
     <div class="transcribe-bar">
-      <button class="btn btn-sm btn-accent" id="micBtn" onclick="startTranscribe('${s.id}')">🎙️ Iniciar</button>
+      <button class="btn btn-sm btn-accent" onclick="abrirTranscricao('${s.id}')">🎙️ Transcrever ${s.type==="lecture"?"palestra":"aula"} ao vivo</button>
+      <span class="sub">Ou apenas escreva suas anotações abaixo.</span>
+      <div class="spacer"></div>
+      <button class="btn btn-sm" onclick="baixarTranscricao('${s.id}')">💾 Salvar em arquivo</button>
+    </div>` : `
+    <div class="transcribe-bar">
+      <button class="btn btn-sm btn-accent hidden" id="micBtn" onclick="startTranscribe('${s.id}')">🎙️ Iniciar</button>
       <button class="btn btn-sm hidden" id="micPause" onclick="pauseTranscribe()">⏸️ Pausar</button>
       <button class="btn btn-sm hidden" id="micResume" onclick="resumeTranscribe()">▶️ Retomar</button>
       <button class="btn btn-sm hidden" id="micStop" onclick="stopTranscribe()">⏹️ Encerrar</button>
-      <span id="micStatus" class="sub">Clique para transcrever a ${s.type==="lecture"?"palestra":"aula"} ao vivo</span>
+      <span id="micStatus" class="sub">🔴 Ouvindo…</span>
       <div class="spacer"></div>
       <button class="btn btn-sm" onclick="gerarResumo('${s.id}')">✨ Gerar resumo</button>
-      <button class="btn btn-sm btn-accent" onclick="baixarTranscricao('${s.id}')">💾 Salvar em arquivo</button>
-    </div>` : "";
+      <button class="btn btn-sm" onclick="baixarTranscricao('${s.id}')">💾 Salvar</button>
+      <button class="btn btn-sm btn-danger" onclick="fecharTranscricao()">✕ Fechar transcrição</button>
+    </div>`);
 
-  // Área dividida: transcrição (editor principal) + minhas anotações ao vivo
-  const editorArea = showTranscribe ? `
+  // Área principal: só anotações (padrão) OU dividida (transcrição + anotações)
+  const editorArea = !showTranscribe ? `
+    <div class="rte-doc">
+      <div class="rte-page" id="rtePage" contenteditable="true"
+        oninput="onStudyInput('${s.id}')" onkeyup="updateRteState()" onmouseup="updateRteState()">${s.html || "<p></p>"}</div>
+    </div>
+    <div class="rte-status"><span id="rteWords">0 palavras</span><span id="rteSaved">Salvo</span></div>`
+  : (!_transcribeMode ? `
+    <div class="rec-col-head">✍️ Minhas anotações</div>
+    <textarea id="liveNotes" class="live-notes" style="flex:1;min-height:50vh" placeholder="Escreva aqui suas anotações da ${s.type==="lecture"?"palestra":"aula"}… (salva automaticamente)"
+      oninput="saveLiveNotes('${s.id}')">${escapeHtml(s.liveNotes||"")}</textarea>
+    <div id="rtePage" class="hidden">${s.html||"<p></p>"}</div>
+    <div class="rte-status"><span id="rteWords"></span><span id="rteSaved">Salvo</span></div>`
+  : `
     <div class="rec-split">
       <div class="rec-col">
         <div class="rec-col-head">📝 Transcrição ${s.type==="lecture"?"da palestra":"da aula"}</div>
@@ -2758,22 +2777,16 @@ function viewStudyDetail(s){
       </div>
       <div class="rec-col rec-col-notes">
         <div class="rec-col-head">✍️ Minhas anotações ao vivo</div>
-        <textarea id="liveNotes" class="live-notes" placeholder="Escreva aqui, enquanto ouve, o que achou interessante… (salva automaticamente)"
+        <textarea id="liveNotes" class="live-notes" placeholder="Escreva aqui, enquanto ouve… (salva automaticamente)"
           oninput="saveLiveNotes('${s.id}')">${escapeHtml(s.liveNotes||"")}</textarea>
       </div>
     </div>
-    <div class="rte-status"><span id="rteWords">0 palavras</span><span id="rteSaved">Salvo</span></div>`
-  : `
-    <div class="rte-doc">
-      <div class="rte-page" id="rtePage" contenteditable="true"
-        oninput="onStudyInput('${s.id}')" onkeyup="updateRteState()" onmouseup="updateRteState()">${s.html || "<p></p>"}</div>
-    </div>
-    <div class="rte-status"><span id="rteWords">0 palavras</span><span id="rteSaved">Salvo</span></div>`;
+    <div class="rte-status"><span id="rteWords">0 palavras</span><span id="rteSaved">Salvo</span></div>`);
 
   return `<div class="split">
     <div class="pane">
       ${header}
-      ${rteToolbar()}
+      ${(showTranscribe && !_transcribeMode) ? "" : rteToolbar()}
       ${transcribeBar}
       ${editorArea}
     </div>
@@ -2790,6 +2803,16 @@ function saveLiveNotes(id){
 
 /* ===== Transcrição por voz (Web Speech API) + resumo local ===== */
 let _recognition=null, _recState="off", _recStudyId=null; // off | recording | paused
+let _transcribeMode=false; // false = só anotações (tela cheia); true = tela dividida com transcrição
+function abrirTranscricao(id){
+  _transcribeMode=true; render();
+  // já inicia a gravação automaticamente ao abrir
+  setTimeout(()=>startTranscribe(id), 120);
+}
+function fecharTranscricao(){
+  if(_recState!=="off") stopTranscribe();
+  _transcribeMode=false; render();
+}
 function _micButtons(state){
   const set=(id,show)=>{ const el=document.getElementById(id); if(el) el.classList.toggle("hidden",!show); };
   set("micBtn", state==="off");

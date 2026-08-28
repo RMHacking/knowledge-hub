@@ -407,6 +407,11 @@
   .rec-split .rte-doc{padding:0;background:#fff;}
   .rec-split .rte-page{max-width:none;width:100%;min-height:100%;border-radius:0;box-shadow:none;
     padding:24px 40px;font-size:18px;line-height:1.8;}
+  /* Reforço: preenche 100% do espaço, sem "folha" centralizada */
+  .rec-doc-full{padding:0 !important;background:#fff !important;display:block !important;overflow:auto;}
+  .rec-page-full{max-width:none !important;width:100% !important;min-height:100% !important;
+    margin:0 !important;border-radius:0 !important;box-shadow:none !important;padding:22px 32px !important;
+    font-size:18px !important;line-height:1.8 !important;box-sizing:border-box;}
   .resumo-auto{background:#fff6d8;color:#4a3d10;border-left:4px solid #e3b341;padding:12px 16px;
     margin-bottom:18px;border-radius:8px;font-size:15px;line-height:1.6;}
   /* Em telas mais estreitas, empilha as anotações embaixo (transcrição ganha largura total) */
@@ -2654,7 +2659,15 @@ function createStudy(type){
   store.studies.unshift(s); store.activeStudy=id; persist(); closeModal(); render();
   setTimeout(()=>document.querySelector(".study-meta input")?.focus(),40);
 }
-function openStudy(id){ store.activeStudy=id; render();
+function openStudy(id){
+  // limpa resumos duplicados que possam ter ficado salvos de versões antigas
+  const s=store.studies.find(x=>x.id===id);
+  if(s && s.html){
+    const tmp=document.createElement("div"); tmp.innerHTML=s.html;
+    const resumos=tmp.querySelectorAll(".resumo-auto, div[style*='fff6d8']");
+    if(resumos.length>1){ resumos.forEach((el,i)=>{ if(i<resumos.length-1) el.remove(); }); s.html=tmp.innerHTML; persist(); }
+  }
+  store.activeStudy=id; render();
   setTimeout(()=>{ document.getElementById("rtePage") && updateRteState(); },40); }
 function closeStudy(){ if(_recState!=="off") stopTranscribe(); store.activeStudy=null; render(); }
 function deleteStudy(id){ askConfirm("Deletar este estudo? Não dá para desfazer.", ()=>{
@@ -2738,8 +2751,8 @@ function viewStudyDetail(s){
     <div class="rec-split">
       <div class="rec-col">
         <div class="rec-col-head">📝 Transcrição ${s.type==="lecture"?"da palestra":"da aula"}</div>
-        <div class="rte-doc" style="padding:18px">
-          <div class="rte-page" id="rtePage" contenteditable="true"
+        <div class="rte-doc rec-doc-full">
+          <div class="rte-page rec-page-full" id="rtePage" contenteditable="true"
             oninput="onStudyInput('${s.id}')" onkeyup="updateRteState()" onmouseup="updateRteState()">${s.html || "<p></p>"}</div>
         </div>
       </div>

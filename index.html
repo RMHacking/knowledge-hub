@@ -319,7 +319,10 @@
     .bible-layout{flex-direction:column;}
     /* Editor ocupa largura total */
     .rte-page{padding:20px 16px !important;font-size:16px;}
-    .rte-toolbar{gap:2px;padding:6px;}
+    .rte-toolbar{gap:2px;padding:6px;flex-wrap:nowrap;}
+    /* barra estilo Word rola de lado no celular, sem quebrar em várias linhas */
+    .rte-tools-wrap{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin;}
+    .rte-toolbar .grp{flex:0 0 auto;}
     /* Cartões e grids reduzem */
     .grid{gap:12px;}
     /* Calendário compacto */
@@ -450,6 +453,15 @@
     border-bottom:1px solid var(--border);background:var(--bg-2);}
   .live-notes{flex:1;width:100%;border:none;outline:none;resize:none;padding:16px;background:var(--bg-2);
     color:var(--fg);font-size:14px;line-height:1.7;font-family:var(--font-ui);}
+  /* Anotações com formatação (editor rico) */
+  div.live-notes{overflow:auto;min-height:0;box-sizing:border-box;word-wrap:break-word;overflow-wrap:anywhere;font-size:16px;}
+  div.live-notes.is-empty::before{content:attr(data-placeholder);color:var(--muted);pointer-events:none;}
+  div.live-notes h1{font-size:28px;margin:.4em 0;} div.live-notes h2{font-size:22px;margin:.4em 0;} div.live-notes h3{font-size:18px;margin:.4em 0;}
+  div.live-notes ul,div.live-notes ol{padding-left:26px;} div.live-notes a{color:var(--accent);}
+  div.live-notes blockquote{border-left:4px solid var(--accent);margin:10px 0;padding:4px 14px;color:var(--muted);font-style:italic;}
+  div.live-notes pre{background:var(--card);padding:10px 12px;border-radius:8px;white-space:pre-wrap;}
+  /* marca-texto continua legível no tema escuro */
+  div.live-notes [style*="background-color"]:not([style*="; color"]):not([style^="color"]){color:#111;}
   /* Editor da transcrição ao vivo: usa a largura toda da coluna, sem margens gigantes */
   .rec-split .rte-doc{padding:0;background:#fff;}
   .rec-split .rte-page{max-width:none;width:100%;min-height:100%;border-radius:0;box-shadow:none;
@@ -2828,10 +2840,9 @@ function viewStudyDetail(s){
     <div class="rte-status"><span id="rteWords">0 palavras</span><span id="rteSaved">Salvo</span></div>`
   : (!_transcribeMode ? `
     <div class="rec-col-head">✍️ Minhas anotações</div>
-    <textarea id="liveNotes" class="live-notes" style="flex:1;min-height:50vh" placeholder="Escreva aqui suas anotações da ${s.type==="lecture"?"palestra":"aula"}… (salva automaticamente)"
-      oninput="saveLiveNotes('${s.id}')">${escapeHtml(s.liveNotes||"")}</textarea>
+    ${liveNotesEditor(s, "Escreva aqui suas anotações da "+(s.type==="lecture"?"palestra":"aula")+"… (salva automaticamente)", "flex:1;min-height:50vh")}
     <div id="rtePage" class="hidden">${s.html||"<p></p>"}</div>
-    <div class="rte-status"><span id="rteWords"></span><span id="rteSaved">Salvo</span></div>`
+    <div class="rte-status"><span id="rteWords">0 palavras</span><span id="rteSaved">Salvo</span></div>`
   : `
     <div class="rec-split">
       <div class="rec-col">
@@ -2843,8 +2854,7 @@ function viewStudyDetail(s){
       </div>
       <div class="rec-col rec-col-notes">
         <div class="rec-col-head">✍️ Minhas anotações ao vivo</div>
-        <textarea id="liveNotes" class="live-notes" placeholder="Escreva aqui, enquanto ouve… (salva automaticamente)"
-          oninput="saveLiveNotes('${s.id}')">${escapeHtml(s.liveNotes||"")}</textarea>
+        ${liveNotesEditor(s, "Escreva aqui, enquanto ouve… (salva automaticamente)", "")}
       </div>
     </div>
     <div class="rte-status"><span id="rteWords">0 palavras</span><span id="rteSaved">Salvo</span></div>`);
@@ -2852,7 +2862,7 @@ function viewStudyDetail(s){
   return `<div class="split">
     <div class="pane">
       ${header}
-      ${(showTranscribe && !_transcribeMode) ? "" : rteToolbar()}
+      ${rteToolbar()}
       ${transcribeBar}
       ${editorArea}
     </div>
@@ -2860,11 +2870,41 @@ function viewStudyDetail(s){
   </div>`;
 }
 
+/* Editor das "Minhas anotações" (aula/palestra), agora com formatação.
+   s.liveNotesHtml guarda o texto formatado; s.liveNotes continua com o texto puro (exportar/salvar em arquivo). */
+function liveNotesToHtml(s){
+  if(s.liveNotesHtml!=null && s.liveNotesHtml!=="") return s.liveNotesHtml;
+  const txt=s.liveNotes||""; if(!txt.trim()) return "";
+  // anotações antigas (texto puro): converte cada linha em parágrafo, sem perder nada
+  return txt.split("\n").map(l=> l.trim() ? `<div>${escapeHtml(l)}</div>` : "<div><br></div>").join("");
+}
+function liveNotesEditor(s, placeholder, style){
+  const vazio = !(s.liveNotes||"").trim();
+  return `<div id="liveNotes" class="live-notes${vazio?" is-empty":""}" contenteditable="true" spellcheck="true"
+      ${style?`style="${style}"`:""} data-placeholder="${escapeHtml(placeholder)}"
+      oninput="saveLiveNotes('${s.id}')" onpaste="liveNotesPaste(event)"
+      onkeyup="updateRteState()" onmouseup="updateRteState()">${liveNotesToHtml(s)}</div>`;
+}
+/* Colar texto: entra limpo (sem cores/fundos de sites, que ficariam ilegíveis no tema escuro).
+   Prints/imagens continuam indo para os anexos. */
+function liveNotesPaste(e){
+  const cd=e.clipboardData||window.clipboardData; if(!cd) return;
+  const temImagem=[...(cd.items||[])].some(it=>it.type && it.type.startsWith("image/"));
+  if(temImagem) return;
+  const txt=cd.getData("text/plain"); if(!txt) return;
+  e.preventDefault();
+  document.execCommand("insertText",false,txt);
+}
 function saveLiveNotes(id){
   const s=store.studies.find(x=>x.id===id); if(!s) return;
   const el=document.getElementById("liveNotes"); if(!el) return;
-  s.liveNotes=el.value;
-  clearTimeout(_saveTimer); _saveTimer=setTimeout(persist,500);
+  const texto=el.innerText.replace(/\u00a0/g," ");
+  s.liveNotesHtml=el.innerHTML;
+  s.liveNotes=texto.replace(/\n{3,}/g,"\n\n").trim();
+  el.classList.toggle("is-empty", !s.liveNotes);
+  const sv=document.getElementById("rteSaved"); if(sv) sv.textContent="Editando…";
+  clearTimeout(_saveTimer); _saveTimer=setTimeout(()=>{ persist(); const sv2=document.getElementById("rteSaved"); if(sv2) sv2.textContent="Salvo"; },500);
+  updateRteState();
 }
 
 /* ===== Transcrição por voz (Web Speech API) + resumo local ===== */
@@ -3103,11 +3143,16 @@ function viewNotes(){
 
 /* ---------- Editor rico (barra estilo Word) ---------- */
 function rteToolbar(){
-  const fonts=["Sistema","Serif (livro)","Mono","Georgia","Times New Roman","Arial","Courier New"];
+  const fonts=["Sistema","Serif (livro)","Mono","Georgia","Times New Roman","Arial","Courier New","Verdana","Trebuchet MS"];
   const sizes=[["1","10"],["2","13"],["3","16"],["4","18"],["5","24"],["6","32"],["7","48"]];
+  const nd='onmousedown="event.preventDefault()"'; // botão não "rouba" a seleção do texto
   return `<div class="rte-toolbar" id="rteToolbar">
-    <button class="rte-btn rte-toggle" onclick="toggleToolbar()" title="Mostrar/ocultar ferramentas">⚙️</button>
+    <button class="rte-btn rte-toggle" ${nd} onclick="toggleToolbar()" title="Mostrar/ocultar ferramentas">⚙️</button>
     <div class="rte-tools-wrap" id="rteToolsWrap">
+    <div class="grp">
+      <button class="rte-btn" ${nd} onclick="rte('undo')" title="Desfazer (Ctrl+Z)">↶</button>
+      <button class="rte-btn" ${nd} onclick="rte('redo')" title="Refazer (Ctrl+Y)">↷</button>
+    </div>
     <div class="grp">
       <select class="rte-select" onchange="rteBlock(this.value)" title="Estilo de parágrafo">
         <option value="P">Texto</option><option value="H1">Título 1</option><option value="H2">Título 2</option>
@@ -3116,36 +3161,47 @@ function rteToolbar(){
       <select class="rte-select" onchange="rteFont(this.value)" title="Fonte">
         ${fonts.map(f=>`<option>${f}</option>`).join("")}
       </select>
-      <select class="rte-select" onchange="rteSize(this.value)" title="Tamanho">
+      <select class="rte-select" onchange="rteSize(this.value)" title="Tamanho da letra">
         <option value="">Tam.</option>${sizes.map(s=>`<option value="${s[0]}">${s[1]}</option>`).join("")}
       </select>
     </div>
     <div class="grp">
-      <button class="rte-btn" data-cmd="bold" onclick="rte('bold')" title="Negrito (Ctrl+B)"><b>B</b></button>
-      <button class="rte-btn" data-cmd="italic" onclick="rte('italic')" title="Itálico (Ctrl+I)"><i>I</i></button>
-      <button class="rte-btn" data-cmd="underline" onclick="rte('underline')" title="Sublinhado (Ctrl+U)"><u>U</u></button>
-      <button class="rte-btn" data-cmd="strikeThrough" onclick="rte('strikeThrough')" title="Tachado"><s>S</s></button>
+      <button class="rte-btn" ${nd} data-cmd="bold" onclick="rte('bold')" title="Negrito (Ctrl+B)"><b>N</b></button>
+      <button class="rte-btn" ${nd} data-cmd="italic" onclick="rte('italic')" title="Itálico (Ctrl+I)"><i>I</i></button>
+      <button class="rte-btn" ${nd} data-cmd="underline" onclick="rte('underline')" title="Sublinhado (Ctrl+U)"><u>S</u></button>
+      <button class="rte-btn" ${nd} data-cmd="strikeThrough" onclick="rte('strikeThrough')" title="Tachado"><s>abc</s></button>
+      <button class="rte-btn" ${nd} data-cmd="subscript" onclick="rte('subscript')" title="Subscrito">x₂</button>
+      <button class="rte-btn" ${nd} data-cmd="superscript" onclick="rte('superscript')" title="Sobrescrito">x²</button>
     </div>
     <div class="grp">
-      <label class="rte-btn" title="Cor do texto" style="padding:0"><span style="font-weight:700">A</span>
-        <input type="color" class="hidden" onchange="rte('foreColor',this.value)"></label>
-      <label class="rte-btn" title="Cor de fundo" style="padding:0;background:#ffe08a;color:#333"><span>A</span>
-        <input type="color" class="hidden" onchange="rte('hiliteColor',this.value)"></label>
+      <select class="rte-select" onchange="rteCase(this.value);this.selectedIndex=0" title="Maiúsculas e minúsculas (selecione o texto antes)">
+        <option value="">Aa</option><option value="upper">MAIÚSCULAS</option><option value="lower">minúsculas</option>
+        <option value="title">Cada Palavra Maiúscula</option><option value="sentence">Primeira letra da frase</option>
+      </select>
     </div>
     <div class="grp">
-      <button class="rte-btn" onclick="rte('justifyLeft')" title="Alinhar à esquerda">⯇</button>
-      <button class="rte-btn" onclick="rte('justifyCenter')" title="Centralizar">≡</button>
-      <button class="rte-btn" onclick="rte('justifyRight')" title="Alinhar à direita">⯈</button>
+      <label class="rte-btn" title="Cor da letra" style="padding:0;flex-direction:column;gap:0"><span style="font-weight:700;line-height:1">A</span>
+        <span style="width:16px;height:3px;background:#e5534b;border-radius:2px"></span>
+        <input type="color" class="hidden" value="#e5534b" onchange="rte('foreColor',this.value)"></label>
+      <label class="rte-btn" title="Marca-texto (cor de fundo)" style="padding:0;background:#ffe08a;color:#333">🖍
+        <input type="color" class="hidden" value="#ffe08a" onchange="rte('hiliteColor',this.value)"></label>
     </div>
     <div class="grp">
-      <button class="rte-btn" onclick="rte('insertUnorderedList')" title="Lista com marcadores">•</button>
-      <button class="rte-btn" onclick="rte('insertOrderedList')" title="Lista numerada">1.</button>
-      <button class="rte-btn" onclick="rteLink()" title="Inserir link">🔗</button>
+      <button class="rte-btn" ${nd} onclick="rte('justifyLeft')" title="Alinhar à esquerda">⯇</button>
+      <button class="rte-btn" ${nd} onclick="rte('justifyCenter')" title="Centralizar">≡</button>
+      <button class="rte-btn" ${nd} onclick="rte('justifyRight')" title="Alinhar à direita">⯈</button>
+      <button class="rte-btn" ${nd} onclick="rte('justifyFull')" title="Justificar">☰</button>
     </div>
     <div class="grp">
-      <button class="rte-btn" onclick="rte('removeFormat')" title="Limpar formatação">⌫</button>
-      <button class="rte-btn" onclick="rte('undo')" title="Desfazer">↶</button>
-      <button class="rte-btn" onclick="rte('redo')" title="Refazer">↷</button>
+      <button class="rte-btn" ${nd} onclick="rte('insertUnorderedList')" title="Lista com marcadores">•</button>
+      <button class="rte-btn" ${nd} onclick="rte('insertOrderedList')" title="Lista numerada">1.</button>
+      <button class="rte-btn" ${nd} onclick="rte('outdent')" title="Diminuir recuo">⇤</button>
+      <button class="rte-btn" ${nd} onclick="rte('indent')" title="Aumentar recuo">⇥</button>
+    </div>
+    <div class="grp">
+      <button class="rte-btn" ${nd} onclick="rteLink()" title="Inserir link">🔗</button>
+      <button class="rte-btn" ${nd} onclick="rte('insertHorizontalRule')" title="Linha divisória">―</button>
+      <button class="rte-btn" ${nd} onclick="rte('removeFormat')" title="Limpar formatação">⌫</button>
     </div>
     </div>
   </div>`;
@@ -3157,18 +3213,88 @@ function toggleToolbar(){
   if(wrap) wrap.classList.toggle("hidden",_toolbarHidden);
   try{ localStorage.setItem("kh_toolbar_hidden", _toolbarHidden?"1":"0"); }catch(e){}
 }
-function rte(cmd,val){ document.getElementById("rtePage")?.focus(); document.execCommand(cmd,false,val||null); updateRteState(); persistActiveNote(); }
-function rteBlock(tag){ document.getElementById("rtePage")?.focus(); document.execCommand("formatBlock",false,tag); persistActiveNote(); }
-function rteFont(name){ const map={"Sistema":"var(--font-ui)","Serif (livro)":"Georgia, serif","Mono":"monospace","Georgia":"Georgia","Times New Roman":"'Times New Roman'","Arial":"Arial","Courier New":"'Courier New'"};
-  document.getElementById("rtePage")?.focus(); document.execCommand("fontName",false,map[name]||name); persistActiveNote(); }
-function rteSize(v){ if(!v) return; document.getElementById("rtePage")?.focus(); document.execCommand("fontSize",false,v); persistActiveNote(); }
+/* Qual editor a barra controla: o último em que você clicou/selecionou.
+   Sem nada selecionado, vai para "Minhas anotações" (se existir) ou para o editor principal. */
+let _rteEl=null, _rteRange=null;
+const _RTE_SEL='#rtePage[contenteditable="true"], #liveNotes[contenteditable="true"]';
+document.addEventListener("selectionchange",()=>{
+  const sel=window.getSelection(); if(!sel || !sel.rangeCount) return;
+  const n=sel.anchorNode; const base=n && (n.nodeType===1?n:n.parentElement);
+  const el=base && base.closest ? base.closest(_RTE_SEL) : null;
+  if(el){ _rteEl=el; _rteRange=sel.getRangeAt(0).cloneRange(); }
+});
+function rteTarget(){
+  if(_rteEl && _rteEl.isConnected) return _rteEl;
+  return document.querySelector('#liveNotes[contenteditable="true"]') || document.querySelector('#rtePage[contenteditable="true"]');
+}
+function rteFocus(){
+  const el=rteTarget(); if(!el) return null;
+  el.focus();
+  if(_rteRange && el.contains(_rteRange.commonAncestorContainer)){
+    const sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(_rteRange);
+  }
+  return el;
+}
+function rteAfter(){
+  const el=rteTarget();
+  if(el && el.id==="liveNotes") saveLiveNotes(store.activeStudy); else persistActiveNote();
+  updateRteState();
+}
+function rte(cmd,val){ if(!rteFocus()) return; document.execCommand(cmd,false,val||null); rteAfter(); }
+function rteBlock(tag){ if(!rteFocus()) return; document.execCommand("formatBlock",false,"<"+tag+">"); rteAfter(); }
+/* MAIÚSCULAS / minúsculas / Cada Palavra / Primeira letra da frase — preserva negrito, cores etc. */
+function rteCase(mode){
+  if(!mode) return;
+  const el=rteFocus(); if(!el) return;
+  const sel=window.getSelection();
+  if(!sel.rangeCount || sel.isCollapsed){ toast("Selecione o texto que quer converter."); return; }
+  const r=sel.getRangeAt(0);
+  const walker=document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const nodes=[]; let n;
+  while((n=walker.nextNode())){ if(r.intersectsNode(n)) nodes.push(n); }
+  if(!nodes.length) return;
+  let prev=" "; // caractere anterior (para saber início de palavra/frase)
+  let inicioFrase=true;
+  nodes.forEach(node=>{
+    const t=node.nodeValue;
+    const a = node===r.startContainer ? r.startOffset : 0;
+    const b = node===r.endContainer ? r.endOffset : t.length;
+    let out="";
+    for(const ch of t.slice(a,b)){
+      let c=ch;
+      if(mode==="upper") c=ch.toLocaleUpperCase("pt-BR");
+      else if(mode==="lower") c=ch.toLocaleLowerCase("pt-BR");
+      else if(mode==="title") c = /[\s\-\(\["“]/.test(prev) ? ch.toLocaleUpperCase("pt-BR") : ch.toLocaleLowerCase("pt-BR");
+      else if(mode==="sentence"){
+        if(/\p{L}/u.test(ch)){ c = inicioFrase ? ch.toLocaleUpperCase("pt-BR") : ch.toLocaleLowerCase("pt-BR"); inicioFrase=false; }
+        else if(/[.!?…]/.test(ch)) inicioFrase=true;
+      }
+      out+=c; prev=ch;
+    }
+    node.nodeValue=t.slice(0,a)+out+t.slice(b);
+  });
+  // mantém o mesmo trecho selecionado
+  try{
+    const nr=document.createRange();
+    nr.setStart(nodes[0], nodes[0]===r.startContainer ? r.startOffset : 0);
+    const last=nodes[nodes.length-1];
+    nr.setEnd(last, last===r.endContainer ? r.endOffset : last.nodeValue.length);
+    sel.removeAllRanges(); sel.addRange(nr); _rteRange=nr.cloneRange();
+  }catch(e){}
+  rteAfter();
+}
+function rteFont(name){ const map={"Sistema":"-apple-system, Segoe UI, Roboto, sans-serif","Serif (livro)":"Georgia, serif","Mono":"monospace","Georgia":"Georgia","Times New Roman":"'Times New Roman'","Arial":"Arial","Courier New":"'Courier New'"};
+  if(!rteFocus()) return; document.execCommand("fontName",false,map[name]||name); rteAfter(); }
+function rteSize(v){ if(!v) return; if(!rteFocus()) return; document.execCommand("fontSize",false,v); rteAfter(); }
 function rteLink(){ askInput({title:"Inserir link", label:"URL do link:", value:"https://", ph:"https://…", okLabel:"Inserir",
   onOk:(url)=>{ if(url) rte("createLink",url); }}); }
 function updateRteState(){
   document.querySelectorAll(".rte-btn[data-cmd]").forEach(b=>{
     try{ b.classList.toggle("on", document.queryCommandState(b.dataset.cmd)); }catch{}
   });
-  const p=document.getElementById("rtePage"); const w=document.getElementById("rteWords");
+  const editavel=document.querySelector('#rtePage[contenteditable="true"]');
+  const p=editavel || document.querySelector('#liveNotes[contenteditable="true"]') || document.getElementById("rtePage");
+  const w=document.getElementById("rteWords");
   if(p&&w){ const t=p.innerText.trim(); w.textContent=(t?t.split(/\s+/).length:0)+" palavras"; }
 }
 let _saveTimer=null;

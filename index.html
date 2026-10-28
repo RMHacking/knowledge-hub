@@ -594,6 +594,41 @@
   .link-name{font-weight:600;font-size:14px;}
   .link-url{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .link-open{font-size:12px;color:var(--accent);font-weight:600;margin-right:4px;}
+
+  /* ================= Responsividade extra (out/2026) ================= */
+  /* 1) Faixa intermediária (Fold 7 aberto, tablets): painel do estudo mais estreito */
+  @media(min-width:821px) and (max-width:1100px){
+    .study-meta{width:260px;flex:0 0 260px;padding:14px;}
+  }
+  /* 2) Telas de toque: ferramentas que só apareciam com o mouse ficam visíveis */
+  @media(hover:none){
+    .verse-tools{opacity:.6;}
+    .verse .quick{position:static;display:inline-block;margin-left:6px;opacity:.8;vertical-align:middle;}
+    .deck-actions{opacity:.9;}
+    .deck-card .deck-name{padding-right:80px;}
+  }
+  /* 3) Telas de toque: botões maiores para o dedo (computador não muda) */
+  @media(pointer:coarse){
+    .rte-btn{min-width:40px;height:40px;font-size:15px;}
+    .rte-select{height:40px;font-size:14px;}
+    .btn-sm{min-height:36px;}
+    .side-item{min-height:46px;}
+    .hl-dot{width:24px;height:24px;font-size:12px;}
+    .meta-rail,.side-rail{flex-basis:46px;}
+  }
+  /* 4) Margens de segurança (câmera, barra de gestos, celular deitado) — no computador valem 0 */
+  .layout{padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);box-sizing:border-box;}
+  .topbar{padding-top:env(safe-area-inset-top,0px);height:calc(62px + env(safe-area-inset-top,0px));flex:0 0 calc(62px + env(safe-area-inset-top,0px));box-sizing:border-box;}
+  .main{padding-bottom:env(safe-area-inset-bottom,0px);box-sizing:border-box;}
+  .sidebar{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);box-sizing:border-box;}
+  .toast{bottom:calc(20px + env(safe-area-inset-bottom,0px));}
+  .toast.show{bottom:calc(34px + env(safe-area-inset-bottom,0px));}
+  @media(max-width:820px){
+    .topbar{height:calc(56px + env(safe-area-inset-top,0px));flex:0 0 calc(56px + env(safe-area-inset-top,0px));}
+  }
+  /* Janelas (modais) altas não ficam cortadas em telas baixas: dá para rolar */
+  .overlay{overflow-y:auto;padding-bottom:24px;box-sizing:border-box;}
+  @media(max-height:700px){ .overlay{padding-top:4vh;} }
 </style>
 </head>
 <body>
@@ -3949,6 +3984,23 @@ document.getElementById("themeBtn").onclick=toggleTheme;
 document.getElementById("paletteBtn").onclick=openPalette;
 document.getElementById("profileBtn").onclick=openProfile;
 document.getElementById("logoutBtn").onclick=logout;
+/* Fold aberto / tablet (821–1100px): menu abre recolhido em ícones para sobrar espaço.
+   Só age ao ENTRAR na faixa; se você expandir no ☰, ele respeita. */
+let _zonaTela=null, _menuAutoRecolhido=false;
+function ajustarLayoutTela(){
+  const w=window.innerWidth;
+  const zona = w<=820 ? "celular" : (w<=1100 ? "media" : "larga");
+  if(zona===_zonaTela) return;
+  const sb=document.getElementById("sidebar");
+  if(sb){
+    if(zona==="media" && !sb.classList.contains("collapsed")){ sb.classList.add("collapsed"); _menuAutoRecolhido=true; }
+    else if(zona==="larga" && _menuAutoRecolhido){ sb.classList.remove("collapsed"); _menuAutoRecolhido=false; }
+  }
+  _zonaTela=zona;
+  if(typeof atualizarFocoBtn==="function") atualizarFocoBtn();
+}
+window.addEventListener("resize", ajustarLayoutTela);
+ajustarLayoutTela();
 document.getElementById("sideToggle").onclick=()=>{
   const sb=document.getElementById("sidebar");
   if(window.innerWidth>820 && document.body.classList.contains("side-hidden")){ mostrarMenuLateral(); return; }

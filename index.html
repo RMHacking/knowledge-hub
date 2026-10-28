@@ -661,6 +661,24 @@
   .offline-badge{display:none;font-size:12px;font-weight:600;color:#f59e0b;border:1px solid rgba(245,158,11,.5);border-radius:20px;padding:3px 10px;margin-left:8px;white-space:nowrap;}
   .offline-badge.show{display:inline-block;}
   .transcribe-bar{flex-wrap:wrap;}
+
+  /* Bíblia: laterais minimizáveis */
+  .bible-split.bl-hidden .bible-books{display:none;}
+  .bible-split.br-hidden .bible-side{display:none;}
+  .bible-rail{display:none;flex:0 0 40px;flex-direction:column;align-items:center;gap:12px;padding:14px 0;
+    background:var(--bg-2);color:var(--muted);cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;transition:background .15s,color .15s;}
+  .bible-rail:hover{background:var(--card-2);color:var(--fg);}
+  .bible-rail .vt{writing-mode:vertical-rl;transform:rotate(180deg);font-size:12px;font-weight:600;white-space:nowrap;}
+  .bible-rail .meta-arrow{font-size:18px;color:var(--accent);}
+  .bible-rail-l{border-right:1px solid var(--border);} .bible-rail-r{border-left:1px solid var(--border);}
+  .bible-split.bl-hidden .bible-rail-l, .bible-split.br-hidden .bible-rail-r{display:flex;}
+  @media(pointer:coarse){ .bible-rail{flex-basis:46px;} }
+  @media(max-width:820px){
+    .bible-rail{flex:none;flex-direction:row;justify-content:center;padding:12px;border:none;border-bottom:1px solid var(--border);}
+    .bible-rail-r{border-top:1px solid var(--border);border-bottom:none;}
+    .bible-rail .vt{writing-mode:horizontal-tb;transform:none;}
+    .bible-rail .meta-arrow{transform:rotate(90deg);display:inline-block;}
+  }
 </style>
 </head>
 <body>
@@ -3830,10 +3848,13 @@ function viewBible(){
         <button class="btn btn-sm btn-danger" onclick="delBibleInbox('${it.id}')">✕</button></div></div>`).join("")
     : `<div class="empty">Cole ou importe trechos de outros apps aqui.</div>`;
 
-  return `<div class="split">
-    <div class="subnav wide">
-      <div style="padding:10px"><input class="field" style="margin:0" placeholder="Buscar livro…"
-        value="${escapeHtml(store.bibleSearch||"")}" oninput="store.bibleSearch=this.value;render()"></div>
+  return `<div class="split bible-split${_bibLHidden?" bl-hidden":""}${_bibRHidden?" br-hidden":""}">
+    <div class="bible-rail bible-rail-l" onclick="toggleBibleLado('l')" role="button" tabindex="0" title="Mostrar a lista de livros">
+      <span class="meta-arrow">›</span><span class="vt">📖 Livros</span></div>
+    <div class="subnav wide bible-books">
+      <div style="padding:10px;display:flex;gap:6px;align-items:center"><input class="field" style="margin:0;flex:1" placeholder="Buscar livro…"
+        value="${escapeHtml(store.bibleSearch||"")}" oninput="store.bibleSearch=this.value;render()">
+        <button class="btn btn-sm" onclick="toggleBibleLado('l')" title="Minimizar a lista de livros">‹</button></div>
       ${navList||'<div class="empty">Nenhum livro.</div>'}
     </div>
     <div class="pane">
@@ -3844,15 +3865,17 @@ function viewBible(){
         <span class="sub">${BIBLE_COMPLETA?`${books.length} livros`:"amostra"}</span>
         <button class="btn btn-sm" onclick="chapDelta(-1)">‹ Anterior</button>
         <button class="btn btn-sm" onclick="chapDelta(1)">Próximo ›</button>
+        <button class="btn btn-sm" id="bibFocoBtn" onclick="toggleBibleFoco()" title="Esconde as duas laterais para ler com a tela toda">${(_bibLHidden&&_bibRHidden)?"⤢ Mostrar laterais":"⛶ Só leitura"}</button>
       </div>
       ${banner}
       <div style="flex:1;overflow:auto"><div class="kindle-surface">
         <h2>${book} ${chapter+1}</h2><div class="subtle">João Ferreira de Almeida · modo caderno</div>${vHtml}
       </div></div>
     </div>
-    <div class="subnav" style="border-left:1px solid var(--border);border-right:none">
+    <div class="subnav bible-side" style="border-left:1px solid var(--border);border-right:none">
       <div class="toolbar"><strong style="font-size:13px">📌 Versículos salvos</strong>
-        <div class="spacer"></div><span class="sub">${store.savedVerses.length}</span></div>
+        <div class="spacer"></div><span class="sub">${store.savedVerses.length}</span>
+        <button class="btn btn-sm" onclick="toggleBibleLado('r')" title="Minimizar este painel">›</button></div>
       <div style="padding:0 10px 10px;max-height:38%;overflow:auto">
         ${store.savedVerses.length ? store.savedVerses.map(v=>`
           <div class="saved-verse">
@@ -3873,8 +3896,21 @@ function viewBible(){
         <button class="btn btn-sm" onclick="pasteBibleInbox()">Colar</button></div></div>
       ${inbox}
     </div>
+    <div class="bible-rail bible-rail-r" onclick="toggleBibleLado('r')" role="button" tabindex="0" title="Mostrar versículos salvos e Inbox">
+      <span class="meta-arrow">‹</span><span class="vt">📌 Salvos · Inbox</span></div>
   </div>`;
 }
+/* Bíblia: minimizar/mostrar a lista de livros (esquerda) e os salvos/inbox (direita).
+   A escolha fica lembrada. No celular, as duas laterais começam recolhidas. */
+function _bibPref(k){ try{ const v=localStorage.getItem(k); return v===null ? (window.innerWidth<=820) : v==="1"; }catch(e){ return false; } }
+let _bibLHidden=_bibPref("kh_bib_l_hidden"), _bibRHidden=_bibPref("kh_bib_r_hidden");
+function _bibAplicar(){
+  const sp=document.querySelector(".bible-split"); if(sp){ sp.classList.toggle("bl-hidden",_bibLHidden); sp.classList.toggle("br-hidden",_bibRHidden); }
+  try{ localStorage.setItem("kh_bib_l_hidden",_bibLHidden?"1":"0"); localStorage.setItem("kh_bib_r_hidden",_bibRHidden?"1":"0"); }catch(e){}
+  const b=document.getElementById("bibFocoBtn"); if(b) b.textContent=(_bibLHidden&&_bibRHidden)?"⤢ Mostrar laterais":"⛶ Só leitura";
+}
+function toggleBibleLado(lado){ if(lado==="l") _bibLHidden=!_bibLHidden; else _bibRHidden=!_bibRHidden; _bibAplicar(); }
+function toggleBibleFoco(){ const tudo=_bibLHidden&&_bibRHidden; _bibLHidden=!tudo; _bibRHidden=!tudo; _bibAplicar(); }
 function toggleVerseNote(book,chap,vi){
   const el=document.getElementById("ve-"+vi); if(!el) return;
   el.classList.toggle("hidden");

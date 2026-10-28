@@ -485,6 +485,16 @@
   .meta-rail .vt{writing-mode:vertical-rl;transform:rotate(180deg);font-size:12px;font-weight:600;white-space:nowrap;}
   .meta-rail .meta-arrow{font-size:18px;color:var(--accent);}
   .study-split.meta-hidden .meta-rail{display:flex;}
+  .side-rail{display:none;flex:0 0 40px;flex-direction:column;align-items:center;gap:12px;padding:14px 0;
+    border-right:1px solid var(--border);background:var(--bg-2);color:var(--muted);cursor:pointer;user-select:none;
+    -webkit-tap-highlight-color:transparent;transition:background .15s,color .15s;}
+  .side-rail:hover{background:var(--card-2);color:var(--fg);}
+  .side-rail .vt{writing-mode:vertical-rl;transform:rotate(180deg);font-size:12px;font-weight:600;white-space:nowrap;}
+  .side-rail .meta-arrow{font-size:18px;color:var(--accent);}
+  @media(min-width:821px){
+    body.side-hidden .sidebar{display:none;}
+    body.side-hidden .study-split .side-rail{display:flex;}
+  }
   @media(max-width:820px){
     .study-meta{width:auto;flex:none;border-left:none;border-top:1px solid var(--border);}
     .meta-rail{flex:none;flex-direction:row;justify-content:center;padding:12px;border-left:none;border-top:1px solid var(--border);}
@@ -2759,7 +2769,7 @@ function openStudy(id){
   }
   store.activeStudy=id; render();
   setTimeout(()=>{ document.getElementById("rtePage") && updateRteState(); },40); }
-function closeStudy(){ if(_recState!=="off") stopTranscribe(); _transcribeMode=false; store.activeStudy=null; render(); }
+function closeStudy(){ document.body.classList.remove("side-hidden"); if(_recState!=="off") stopTranscribe(); _transcribeMode=false; store.activeStudy=null; render(); }
 function deleteStudy(id){ askConfirm("Deletar este estudo? Não dá para desfazer.", ()=>{
   store.studies=store.studies.filter(x=>x.id!==id); store.activeStudy=null; persist(); render(); }); }
 function updateStudyField(id,k,v){ const s=store.studies.find(x=>x.id===id); if(!s)return; s[k]=v;
@@ -2837,7 +2847,8 @@ function viewStudyDetail(s){
   const header = itemHeader({
     title:`<span id="studyHeaderTitle">${escapeHtml(studyTitle(s))}</span>`,
     onBack:`closeStudy()`, onDelete:`deleteStudy('${s.id}')`
-  });
+  }).replace('<div class="spacer"></div>',
+    `<div class="spacer"></div><button class="btn btn-sm" id="focoBtn" onclick="toggleFocoEstudo()" title="Esconde os painéis da esquerda e da direita para escrever com a tela toda">${focoLabel()}</button>`);
 
   // Barra de transcrição por voz — só para palestra e curso
   const showTranscribe = (s.type==="lecture"||s.type==="course");
@@ -2893,7 +2904,13 @@ function viewStudyDetail(s){
     <span class="meta-arrow">‹</span><span class="vt">${T.icon} ${T.name} · dados e anexos</span>
   </div>`;
 
+  const sideRail = `<div class="side-rail" onclick="mostrarMenuLateral()" role="button" tabindex="0" title="Mostrar o menu"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();mostrarMenuLateral();}">
+    <span class="meta-arrow">›</span><span class="vt">☰ Menu</span>
+  </div>`;
+
   return `<div class="split study-split${_metaHidden?" meta-hidden":""}">
+    ${sideRail}
     <div class="pane">
       ${header}
       ${rteToolbar()}
@@ -2912,6 +2929,23 @@ function toggleStudyMeta(){
   _metaHidden=!_metaHidden;
   document.querySelector(".study-split")?.classList.toggle("meta-hidden",_metaHidden);
   try{ localStorage.setItem("kh_meta_hidden", _metaHidden?"1":"0"); }catch(e){}
+  atualizarFocoBtn();
+}
+/* Modo "só anotações": esconde o menu da esquerda e o painel da direita de uma vez.
+   O menu da esquerda volta sozinho ao sair do estudo. No celular o menu já é gaveta, então só o painel muda. */
+function _ladoEsquerdoOculto(){ return window.innerWidth<=820 || document.body.classList.contains("side-hidden"); }
+function focoLabel(){ return (_metaHidden && _ladoEsquerdoOculto()) ? "⤢ Mostrar laterais" : "⛶ Só anotações"; }
+function atualizarFocoBtn(){ const b=document.getElementById("focoBtn"); if(b) b.textContent=focoLabel(); }
+function toggleFocoEstudo(){
+  const tudoOculto = _metaHidden && _ladoEsquerdoOculto();
+  document.body.classList.toggle("side-hidden", !tudoOculto);
+  if(tudoOculto === _metaHidden) toggleStudyMeta(); // abre/fecha o painel da direita junto
+  atualizarFocoBtn();
+}
+function mostrarMenuLateral(){
+  document.body.classList.remove("side-hidden");
+  document.getElementById("sidebar")?.classList.remove("collapsed");
+  atualizarFocoBtn();
 }
 
 /* Editor das "Minhas anotações" (aula/palestra), agora com formatação.
@@ -3917,6 +3951,7 @@ document.getElementById("profileBtn").onclick=openProfile;
 document.getElementById("logoutBtn").onclick=logout;
 document.getElementById("sideToggle").onclick=()=>{
   const sb=document.getElementById("sidebar");
+  if(window.innerWidth>820 && document.body.classList.contains("side-hidden")){ mostrarMenuLateral(); return; }
   if(window.innerWidth<=820){ sb.classList.toggle("open"); document.getElementById("sideBackdrop")?.classList.toggle("show", sb.classList.contains("open")); }
   else sb.classList.toggle("collapsed");
 };

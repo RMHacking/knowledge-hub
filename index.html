@@ -495,11 +495,22 @@
     body.side-hidden .sidebar{display:none;}
     body.side-hidden .study-split .side-rail{display:flex;}
   }
-  @media(max-width:820px){
-    .study-meta{width:auto;flex:none;border-left:none;border-top:1px solid var(--border);}
-    .meta-rail{flex:none;flex-direction:row;justify-content:center;padding:12px;border-left:none;border-top:1px solid var(--border);}
-    .meta-rail .vt{writing-mode:horizontal-tb;transform:none;}
-    .meta-rail .meta-arrow,.meta-min-btn .meta-arrow{display:inline-block;transform:rotate(-90deg);}
+  .meta-backdrop{display:none;}
+  /* Celular / Fold fechado: o painel abre como gaveta pela direita, por cima das anotações,
+     e a aba "dados e anexos" fica presa na borda direita da tela (sempre visível, sem rolar).
+     Vale também para telas de toque até 1100px (Fold 7 aberto, tablets). */
+  @media(max-width:820px), (pointer:coarse) and (max-width:1100px){
+    .study-meta{position:fixed;top:0;right:0;height:100dvh;width:86vw;max-width:360px;flex:none;z-index:62;
+      border-left:1px solid var(--border);box-shadow:-8px 0 30px rgba(0,0,0,.45);transition:transform .22s ease;
+      padding-top:calc(18px + env(safe-area-inset-top,0px));padding-bottom:calc(18px + env(safe-area-inset-bottom,0px));}
+    .study-split.meta-hidden .study-meta{display:block;transform:translateX(105%);pointer-events:none;box-shadow:none;}
+    .study-split:not(.meta-hidden) .meta-backdrop{display:block;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:61;}
+    .meta-rail{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:50;flex:none;width:34px;
+      padding:14px 0;border:1px solid var(--border);border-right:none;border-radius:12px 0 0 12px;
+      box-shadow:-4px 0 14px rgba(0,0,0,.35);background:var(--card);}
+    .meta-rail .vt{max-height:40vh;overflow:hidden;text-overflow:ellipsis;}
+    /* a aba da direita não cobre o fim das linhas */
+    .study-split .live-notes, .study-split .rte-page{padding-right:42px !important;}
   }
   .resumo-auto{background:#fff6d8;color:#4a3d10;border-left:4px solid #e3b341;padding:12px 16px;
     margin-bottom:18px;border-radius:8px;font-size:15px;line-height:1.6;}
@@ -2790,7 +2801,7 @@ function createStudy(type){
   const s={ id, type, html:"", links:"", notesField:"", attachments:[], folder:(store.studyFilter===type?store.currentFolder||null:null), at:Date.now() };
   STUDY_TYPES[type].fields.forEach(fl=>s[fl.k]="");
   store.studies.unshift(s); store.activeStudy=id; persist(); closeModal();
-  if(_metaHidden){ _metaHidden=false; try{ localStorage.setItem("kh_meta_hidden","0"); }catch(e){} }
+  _forcarMetaAberto=true;
   render();
   setTimeout(()=>document.querySelector(".study-meta input")?.focus(),40);
 }
@@ -2879,11 +2890,15 @@ function viewStudyDetail(s){
     <button class="btn btn-sm" style="width:100%;margin-top:14px" onclick="exportStudy('${s.id}')">Exportar / publicar (.md)</button>
   </div>`;
 
+  // no celular o painel sempre começa fechado (gaveta); estudo novo abre para preencher os dados
+  const metaOculto = _forcarMetaAberto ? false : (_metaHidden || _modoGaveta());
+  _forcarMetaAberto=false;
+
   const header = itemHeader({
     title:`<span id="studyHeaderTitle">${escapeHtml(studyTitle(s))}</span>`,
     onBack:`closeStudy()`, onDelete:`deleteStudy('${s.id}')`
   }).replace('<div class="spacer"></div>',
-    `<div class="spacer"></div><button class="btn btn-sm" id="focoBtn" onclick="toggleFocoEstudo()" title="Esconde os painéis da esquerda e da direita para escrever com a tela toda">${focoLabel()}</button>`);
+    `<div class="spacer"></div><button class="btn btn-sm" id="focoBtn" onclick="toggleFocoEstudo()" title="Esconde os painéis da esquerda e da direita para escrever com a tela toda">${(metaOculto && _ladoEsquerdoOculto()) ? "⤢ Mostrar laterais" : "⛶ Só anotações"}</button>`);
 
   // Barra de transcrição por voz — só para palestra e curso
   const showTranscribe = (s.type==="lecture"||s.type==="course");
@@ -2944,7 +2959,7 @@ function viewStudyDetail(s){
     <span class="meta-arrow">›</span><span class="vt">☰ Menu</span>
   </div>`;
 
-  return `<div class="split study-split${_metaHidden?" meta-hidden":""}">
+  return `<div class="split study-split${metaOculto?" meta-hidden":""}">
     ${sideRail}
     <div class="pane">
       ${header}
@@ -2953,6 +2968,7 @@ function viewStudyDetail(s){
       ${editorArea}
     </div>
     ${meta}
+    <div class="meta-backdrop" onclick="toggleStudyMeta()"></div>
     ${rail}
   </div>`;
 }
@@ -2960,21 +2976,31 @@ function viewStudyDetail(s){
 /* Painel lateral do estudo (curso, escola, professor, links, anexos): minimizar/mostrar.
    Não redesenha a tela, então o cursor continua onde você estava escrevendo. */
 let _metaHidden=(()=>{ try{ return localStorage.getItem("kh_meta_hidden")==="1"; }catch(e){ return false; } })();
+let _forcarMetaAberto=false;
+/* Painel da direita como gaveta: celular, ou tela de toque até 1100px (Fold aberto) */
+function _modoGaveta(){
+  const w=window.innerWidth;
+  let toque=false; try{ toque=window.matchMedia("(pointer:coarse)").matches; }catch(e){}
+  return w<=820 || (toque && w<=1100);
+}
+function _metaOcultoAgora(){ const sp=document.querySelector(".study-split"); return sp ? sp.classList.contains("meta-hidden") : _metaHidden; }
 function toggleStudyMeta(){
-  _metaHidden=!_metaHidden;
-  document.querySelector(".study-split")?.classList.toggle("meta-hidden",_metaHidden);
-  try{ localStorage.setItem("kh_meta_hidden", _metaHidden?"1":"0"); }catch(e){}
+  const novo=!_metaOcultoAgora();
+  document.querySelector(".study-split")?.classList.toggle("meta-hidden",novo);
+  // no computador a escolha fica lembrada; no celular é só a gaveta abrindo/fechando
+  if(!_modoGaveta()){ _metaHidden=novo; try{ localStorage.setItem("kh_meta_hidden", novo?"1":"0"); }catch(e){} }
   atualizarFocoBtn();
 }
 /* Modo "só anotações": esconde o menu da esquerda e o painel da direita de uma vez.
    O menu da esquerda volta sozinho ao sair do estudo. No celular o menu já é gaveta, então só o painel muda. */
 function _ladoEsquerdoOculto(){ return window.innerWidth<=820 || document.body.classList.contains("side-hidden"); }
-function focoLabel(){ return (_metaHidden && _ladoEsquerdoOculto()) ? "⤢ Mostrar laterais" : "⛶ Só anotações"; }
+function focoLabel(){ return (_metaOcultoAgora() && _ladoEsquerdoOculto()) ? "⤢ Mostrar laterais" : "⛶ Só anotações"; }
 function atualizarFocoBtn(){ const b=document.getElementById("focoBtn"); if(b) b.textContent=focoLabel(); }
 function toggleFocoEstudo(){
-  const tudoOculto = _metaHidden && _ladoEsquerdoOculto();
+  const metaOc = _metaOcultoAgora();
+  const tudoOculto = metaOc && _ladoEsquerdoOculto();
   document.body.classList.toggle("side-hidden", !tudoOculto);
-  if(tudoOculto === _metaHidden) toggleStudyMeta(); // abre/fecha o painel da direita junto
+  if(tudoOculto === metaOc) toggleStudyMeta(); // abre/fecha o painel da direita junto
   atualizarFocoBtn();
 }
 function mostrarMenuLateral(){

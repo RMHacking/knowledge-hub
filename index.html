@@ -96,6 +96,7 @@
     border-bottom:1px solid var(--border);background:var(--bg-2);}
   .topbar .toggle{cursor:pointer;color:var(--muted);font-size:18px;padding:6px;border-radius:8px;}
   .topbar .toggle:hover{background:var(--card-2);}
+  .topbar .meta-toggle{margin-left:6px;font-size:20px;color:var(--fg);}
   .topbar .title{font-size:17px;font-weight:600;}
   .topbar .brand{font-size:18px;font-weight:700;letter-spacing:.3px;}
   .topbar .brand b{color:var(--accent);}
@@ -640,6 +641,26 @@
   /* Janelas (modais) altas não ficam cortadas em telas baixas: dá para rolar */
   .overlay{overflow-y:auto;padding-bottom:24px;box-sizing:border-box;}
   @media(max-height:700px){ .overlay{padding-top:4vh;} }
+
+  /* ===== Ferramentas de estudo (links, código, busca, flashcard, exportar, offline) ===== */
+  .rte-page pre{background:#f4f4f4;border:1px solid #ddd;border-radius:8px;padding:10px 12px;font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:14px;white-space:pre-wrap;}
+  div.live-notes pre{font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:14px;border:1px solid var(--border);}
+  .rte-page a, div.live-notes a{text-decoration:underline;cursor:pointer;}
+  .kh-chip{position:fixed;z-index:120;display:none;gap:4px;background:var(--card);border:1px solid var(--border);
+    border-radius:10px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.45);}
+  .kh-chip.show{display:flex;}
+  .kh-chip button{border:none;background:var(--card-2);color:var(--fg);border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer;font-family:var(--font-ui);}
+  .kh-chip button:hover{background:var(--accent);color:#fff;}
+  .palette .res-head{padding:8px 18px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;background:var(--bg-2);}
+  .palette .res-trecho{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.45;word-break:break-word;}
+  .palette mark{background:#ffe08a;color:#111;border-radius:3px;padding:0 2px;}
+  .export-opt{display:flex;gap:12px;align-items:center;width:100%;text-align:left;padding:12px 14px;margin-bottom:8px;
+    border:1px solid var(--border);border-radius:12px;background:var(--card-2);color:var(--fg);cursor:pointer;font-family:var(--font-ui);}
+  .export-opt:hover{border-color:var(--accent);}
+  .export-opt .ico{font-size:22px;} .export-opt b{display:block;font-size:14px;} .export-opt span.sub{font-size:12px;}
+  .offline-badge{display:none;font-size:12px;font-weight:600;color:#f59e0b;border:1px solid rgba(245,158,11,.5);border-radius:20px;padding:3px 10px;margin-left:8px;white-space:nowrap;}
+  .offline-badge.show{display:inline-block;}
+  .transcribe-bar{flex-wrap:wrap;}
 </style>
 </head>
 <body>
@@ -692,7 +713,9 @@
         <span class="brand brand-home" role="button" tabindex="0" title="Voltar ao Painel" onclick="voltarInicio()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();voltarInicio();}">Knowledge<b>Hub</b></span>
         <div class="spacer"></div>
         <span class="date" id="topDate"></span>
-        <button class="btn btn-sm" id="paletteBtn" style="margin-left:12px">Ctrl+P</button>
+        <span class="offline-badge" id="offlineBadge" title="Sem internet: tudo continua salvando no aparelho e sincroniza quando a conexão voltar">📴 Offline</span>
+        <button class="btn btn-sm" id="paletteBtn" style="margin-left:12px" title="Buscar em comandos, estudos e anotações (Ctrl+P)">🔍 Buscar</button>
+        <span class="toggle meta-toggle" id="metaToggle" role="button" tabindex="0" title="Mostrar/ocultar dados, links e anexos do estudo" style="display:none" onclick="toggleStudyMeta()">☰</span>
       </div>
       <div class="content" id="content"></div>
     </div>
@@ -700,7 +723,7 @@
 </div>
 
 <div class="overlay" id="overlay"><div class="palette">
-  <input id="paletteInput" placeholder="Buscar comandos, notas, livros…" autocomplete="off" />
+  <input id="paletteInput" placeholder="Buscar em estudos, anotações, notas e comandos…" autocomplete="off" />
   <div class="results" id="paletteResults"></div>
 </div></div>
 <div class="overlay" id="modalOverlay"><div class="modal" id="modalBox"></div></div>
@@ -725,6 +748,8 @@ try{
   firebase.initializeApp(firebaseConfig);
   fbAuth = firebase.auth();
   fbDB = firebase.firestore();
+  // Modo offline: guarda os dados no aparelho (IndexedDB) e sincroniza sozinho quando a internet volta
+  try{ fbDB.enablePersistence({synchronizeTabs:true}).catch(e=>console.warn("Offline indisponível:", e.code||e.message)); }catch(e){}
   FB_OK = true;
 }catch(e){ console.warn("Firebase não iniciou (seguindo em modo local):", e.message); }
 </script>
@@ -2339,6 +2364,11 @@ function render(){
                               viewNotes();
   if(store.view==="dashboard") startClocks();
   if(store.view==="settings" && store.user?.isAdmin) carregarUsuarios();
+  // endereços já escritos viram links clicáveis
+  try{ document.querySelectorAll(_RTE_SEL).forEach(ed=>linkifyEl(ed,null)); }catch(e){}
+  _esconderChip && _esconderChip();
+  // ☰ da direita (painel do estudo) só aparece com um estudo aberto
+  const mt=document.getElementById("metaToggle"); if(mt) mt.style.display=(store.view==="studies" && store.activeStudy) ? "" : "none";
   // restaura estado da barra de ferramentas (minimizada ou não)
   if(_toolbarHidden){ const wrap=document.getElementById("rteToolsWrap"); if(wrap) wrap.classList.add("hidden"); }
 }
@@ -2887,7 +2917,7 @@ function viewStudyDetail(s){
       <div id="attachList_${s.id}">${renderAttachments(s)}</div>
     </div>
 
-    <button class="btn btn-sm" style="width:100%;margin-top:14px" onclick="exportStudy('${s.id}')">Exportar / publicar (.md)</button>
+    <button class="btn btn-sm" style="width:100%;margin-top:14px" onclick="abrirExportar('${s.id}')">⬇️ Exportar (Word, PDF, texto, .md)</button>
   </div>`;
 
   // no celular o painel sempre começa fechado (gaveta); estudo novo abre para preencher os dados
@@ -2907,7 +2937,8 @@ function viewStudyDetail(s){
       <button class="btn btn-sm btn-accent" onclick="abrirTranscricao('${s.id}')">🎙️ Transcrever ${s.type==="lecture"?"palestra":"aula"} ao vivo</button>
       <span class="sub">Ou apenas escreva suas anotações abaixo.</span>
       <div class="spacer"></div>
-      <button class="btn btn-sm" onclick="baixarTranscricao('${s.id}')">💾 Salvar em arquivo</button>
+      <button class="btn btn-sm" onclick="gerarResumoAnotacoes('${s.id}')" title="Cria um resumo no topo das suas anotações (substitui o anterior)">✨ Resumir anotações</button>
+      <button class="btn btn-sm" onclick="abrirExportar('${s.id}')">💾 Salvar em arquivo</button>
     </div>` : `
     <div class="transcribe-bar">
       <button class="btn btn-sm btn-accent hidden" id="micBtn" onclick="startTranscribe('${s.id}')">🎙️ Iniciar</button>
@@ -2917,7 +2948,7 @@ function viewStudyDetail(s){
       <span id="micStatus" class="sub">🔴 Ouvindo…</span>
       <div class="spacer"></div>
       <button class="btn btn-sm" onclick="gerarResumo('${s.id}')">✨ Gerar resumo</button>
-      <button class="btn btn-sm" onclick="baixarTranscricao('${s.id}')">💾 Salvar</button>
+      <button class="btn btn-sm" onclick="abrirExportar('${s.id}')">💾 Salvar</button>
       <button class="btn btn-sm btn-danger" onclick="fecharTranscricao()">✕ Fechar transcrição</button>
     </div>`);
 
@@ -3204,6 +3235,88 @@ function renderLinks(txt){
   return `<div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">
     ${urls.map(u=>`<a href="${escapeHtml(u)}" target="_blank" style="font-size:12px;color:var(--accent);word-break:break-all">↗ ${escapeHtml(u)}</a>`).join("")}</div>`;
 }
+/* Resumo das MINHAS ANOTAÇÕES (aula/palestra) — mesmo motor do resumo da transcrição.
+   Sempre substitui o resumo anterior (não empilha). */
+function gerarResumoAnotacoes(id){
+  const s=store.studies.find(x=>x.id===id); if(!s) return;
+  const ed=document.getElementById("liveNotes"); if(!ed || ed.getAttribute("contenteditable")!=="true") return;
+  ed.querySelectorAll(".resumo-auto, div[style*='fff6d8']").forEach(el=>el.remove());
+  const texto=ed.innerText.trim();
+  if(texto.split(/\s+/).length < 30){ toast("Anotações curtas demais para resumir (mínimo ~30 palavras)."); saveLiveNotes(id); return; }
+  const resumo=resumirTexto(texto);
+  const bloco=document.createElement("div");
+  bloco.className="resumo-auto"; bloco.setAttribute("contenteditable","false");
+  bloco.innerHTML=`<strong>📝 Resumo das anotações</strong><br>${escapeHtml(resumo).replace(/\n/g,"<br>")}`;
+  ed.insertBefore(bloco, ed.firstChild);
+  saveLiveNotes(id); ed.scrollTop=0;
+  toast("Resumo gerado no topo das anotações (substitui o anterior).");
+}
+
+/* ===== Exportar estudo: Word, PDF, texto, Markdown ===== */
+const _CSS_EXPORT=`body{font-family:Calibri,Arial,sans-serif;font-size:12pt;line-height:1.55;color:#111;max-width:800px;margin:24px auto;padding:0 16px}
+h1{font-size:22pt;margin:0 0 4px}h2{font-size:15pt;margin:24px 0 8px;border-bottom:1px solid #ccc;padding-bottom:4px}h3{font-size:13pt}
+.sub{color:#666;font-size:10pt}table{border-collapse:collapse;margin:10px 0}td{padding:3px 12px 3px 0;vertical-align:top}td.k{color:#555;font-weight:bold}
+pre{background:#f4f4f4;border:1px solid #ddd;padding:8px 10px;font-family:Consolas,'Courier New',monospace;font-size:10pt;white-space:pre-wrap}
+blockquote{border-left:4px solid #999;margin:8px 0;padding:2px 12px;color:#444;font-style:italic}
+.resumo-auto{background:#fff6d8;border-left:4px solid #e3b341;padding:10px 14px;margin:10px 0}a{color:#1a56db}img{max-width:100%}
+.rec-live{margin:0 0 10px}`;
+function abrirExportar(id){
+  const s=store.studies.find(x=>x.id===id); if(!s) return;
+  document.getElementById("modalBox").innerHTML=`
+    <h2>⬇️ Exportar estudo</h2>
+    <div class="sub" style="margin-bottom:12px">${escapeHtml(studyTitle(s))}</div>
+    <button class="export-opt" onclick="exportarWord('${id}')"><span class="ico">📄</span><span><b>Word (.doc)</b><span class="sub">Com negrito, cores, títulos e listas. Abre no Word e no Google Docs.</span></span></button>
+    <button class="export-opt" onclick="exportarPDF('${id}')"><span class="ico">🖨️</span><span><b>PDF</b><span class="sub">Abre a impressão: escolha “Salvar como PDF”.</span></span></button>
+    <button class="export-opt" onclick="closeModal();baixarTranscricao('${id}')"><span class="ico">📝</span><span><b>Texto (.txt)</b><span class="sub">Só o texto, sem formatação.</span></span></button>
+    <button class="export-opt" onclick="closeModal();exportStudy('${id}')"><span class="ico">Ⓜ️</span><span><b>Markdown (.md)</b><span class="sub">Para Obsidian, GitHub e afins.</span></span></button>
+    <div class="row" style="justify-content:flex-end;margin-top:6px"><button class="btn" onclick="closeModal()">Fechar</button></div>`;
+  document.getElementById("modalOverlay").classList.add("show");
+}
+function _htmlExport(s){
+  const T=STUDY_TYPES[s.type]||{name:"Estudo",fields:[]};
+  const limpar=h=>{ const d=document.createElement("div"); d.innerHTML=h||""; d.querySelectorAll("[contenteditable]").forEach(e=>e.removeAttribute("contenteditable")); return d.innerHTML; };
+  const ehAula=(s.type==="lecture"||s.type==="course");
+  const campos=(T.fields||[]).filter(fl=>s[fl.k]).map(fl=>`<tr><td class="k">${escapeHtml(fl.label)}</td><td>${escapeHtml(s[fl.k])}</td></tr>`).join("");
+  const links=(s.links||"").split("\n").map(l=>l.trim()).filter(Boolean).map(l=>`<li><a href="${escapeHtml(_hrefDe(l))}">${escapeHtml(l)}</a></li>`).join("");
+  const notas=ehAula ? limpar(s.liveNotesHtml || (s.liveNotes?escapeHtml(s.liveNotes).replace(/\n/g,"<br>"):"")) : "";
+  const corpo=limpar(s.html||"");
+  const tituloCorpo = ehAula ? (s.type==="lecture"?"Transcrição da palestra":"Transcrição da aula") : "Estudo";
+  return `<h1>${escapeHtml(studyTitle(s))}</h1>
+    <p class="sub">${escapeHtml(T.name||"Estudo")} · exportado em ${new Date().toLocaleDateString("pt-BR")}</p>
+    ${campos?`<table>${campos}</table>`:""}
+    ${_txt(notas).trim()?`<h2>Minhas anotações</h2><div>${notas}</div>`:""}
+    ${_txt(corpo).trim()?`<h2>${tituloCorpo}</h2><div>${corpo}</div>`:""}
+    ${s.notesField?`<h2>Dados interessantes</h2><p>${escapeHtml(s.notesField).replace(/\n/g,"<br>")}</p>`:""}
+    ${links?`<h2>Links</h2><ul>${links}</ul>`:""}`;
+}
+function _nomeArquivo(s,ext){ return (studyTitle(s)||"estudo").replace(/[^\w\sÀ-ÿ-]/g,"").trim().replace(/\s+/g,"_")+"."+ext; }
+function exportarWord(id){
+  const s=store.studies.find(x=>x.id===id); if(!s) return;
+  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>${escapeHtml(studyTitle(s))}</title><style>${_CSS_EXPORT}</style></head><body>${_htmlExport(s)}</body></html>`;
+  const blob=new Blob(["\ufeff"+html],{type:"application/msword"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=_nomeArquivo(s,"doc"); a.click();
+  closeModal(); toast("Arquivo Word salvo em Downloads ✓");
+}
+function exportarPDF(id){
+  const s=store.studies.find(x=>x.id===id); if(!s) return;
+  const w=window.open("","_blank");
+  if(!w){ toast("O navegador bloqueou a janela. Permita pop-ups para este site."); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(studyTitle(s))}</title><style>${_CSS_EXPORT}</style></head><body>${_htmlExport(s)}
+<script>window.onload=function(){setTimeout(function(){window.print();},350);};<\/script></body></html>`);
+  w.document.close(); closeModal();
+}
+
+/* ===== Aviso de offline ===== */
+function _atualizarOffline(){
+  const b=document.getElementById("offlineBadge"); if(!b) return;
+  b.classList.toggle("show", !navigator.onLine);
+}
+window.addEventListener("offline",()=>{ _atualizarOffline(); toast("Sem internet — continuo salvando no aparelho."); });
+window.addEventListener("online",()=>{ _atualizarOffline(); toast("Internet de volta — sincronizando ✓"); });
+setTimeout(_atualizarOffline,500);
+
 /* Converte o HTML da transcrição em texto limpo e legível (parágrafos separados) */
 function htmlToText(html){
   if(!html) return "";
@@ -3339,6 +3452,8 @@ function rteToolbar(){
     </div>
     <div class="grp">
       <button class="rte-btn" ${nd} onclick="rteLink()" title="Inserir link">🔗</button>
+      <button class="rte-btn" ${nd} onclick="rteCodigo()" title="Bloco de código (comandos, scripts) — com botão copiar"><span style="font-family:monospace;font-weight:700">&lt;/&gt;</span></button>
+      <button class="rte-btn" ${nd} onclick="rteFlashcard()" title="Transformar o trecho selecionado em flashcard">🃏</button>
       <button class="rte-btn" ${nd} onclick="rte('insertHorizontalRule')" title="Linha divisória">―</button>
       <button class="rte-btn" ${nd} onclick="rte('removeFormat')" title="Limpar formatação">⌫</button>
     </div>
@@ -3368,8 +3483,10 @@ function rteTarget(){
 }
 function rteFocus(){
   const el=rteTarget(); if(!el) return null;
+  const cur=window.getSelection();
+  const jaNoEditor = document.activeElement===el && cur && cur.rangeCount && el.contains(cur.anchorNode);
   el.focus();
-  if(_rteRange && el.contains(_rteRange.commonAncestorContainer)){
+  if(!jaNoEditor && _rteRange && el.contains(_rteRange.commonAncestorContainer)){
     const sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(_rteRange);
   }
   return el;
@@ -3425,6 +3542,192 @@ function rteCase(mode){
 function rteFont(name){ const map={"Sistema":"-apple-system, Segoe UI, Roboto, sans-serif","Serif (livro)":"Georgia, serif","Mono":"monospace","Georgia":"Georgia","Times New Roman":"'Times New Roman'","Arial":"Arial","Courier New":"'Courier New'"};
   if(!rteFocus()) return; document.execCommand("fontName",false,map[name]||name); rteAfter(); }
 function rteSize(v){ if(!v) return; if(!rteFocus()) return; document.execCommand("fontSize",false,v); rteAfter(); }
+/* ===== Links automáticos ===== */
+const _TLDS="com|br|net|org|io|dev|app|me|online|site|tech|info|xyz|co|ai|gov|edu|tv|gg|ly|to|us|uk|pt|link|blog|store|cloud|page|so|cc|fm|biz|ws|live|pro|world|news";
+const _URL_RE=new RegExp("(?:https?:\\/\\/[^\\s<]+|www\\.[^\\s<]+|\\b[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9-]+)*\\.(?:"+_TLDS+")\\b(?:\\/[^\\s<]*)?)","gi");
+function _hrefDe(u){ return /^https?:\/\//i.test(u) ? u : "https://"+u; }
+function _limpaFimUrl(u){ return u.replace(/[.,;:!?)\]}"'»]+$/,""); }
+function _dentroDeNaoLinkavel(node, ed){
+  const el=node.nodeType===1?node:node.parentElement;
+  return !!(el && el.closest && el.closest("a,pre,code,.resumo-auto") && ed.contains(el.closest("a,pre,code,.resumo-auto")));
+}
+/* transforma endereços em links no editor inteiro (pula o nó onde está o cursor, para não atrapalhar a digitação) */
+function linkifyEl(ed, pular){
+  if(!ed) return false;
+  const w=document.createTreeWalker(ed,NodeFilter.SHOW_TEXT); const nodes=[]; let n;
+  while((n=w.nextNode())){ if(n!==pular && !_dentroDeNaoLinkavel(n,ed) && _URL_RE.test(n.nodeValue)) nodes.push(n); _URL_RE.lastIndex=0; }
+  let mudou=false;
+  nodes.forEach(node=>{
+    const t=node.nodeValue; const frag=document.createDocumentFragment(); let last=0, m; _URL_RE.lastIndex=0; let achou=false;
+    while((m=_URL_RE.exec(t))){
+      if(m.index>0 && t[m.index-1]==="@") continue; // e-mail, não link
+      const url=_limpaFimUrl(m[0]); if(!url) continue;
+      frag.appendChild(document.createTextNode(t.slice(last,m.index)));
+      const a=document.createElement("a"); a.href=_hrefDe(url); a.target="_blank"; a.rel="noopener noreferrer"; a.textContent=url;
+      frag.appendChild(a); last=m.index+url.length; achou=true;
+    }
+    if(achou){ frag.appendChild(document.createTextNode(t.slice(last))); node.parentNode.replaceChild(frag,node); mudou=true; }
+  });
+  return mudou;
+}
+/* ao digitar espaço depois de um endereço, ele vira link na hora */
+function _linkifyAntesDoCursor(ed){
+  const sel=window.getSelection(); if(!sel.rangeCount || !sel.isCollapsed) return false;
+  const node=sel.anchorNode, off=sel.anchorOffset;
+  if(!node || node.nodeType!==3 || _dentroDeNaoLinkavel(node,ed)) return false;
+  const t=node.nodeValue; const fimToken=off-1; if(fimToken<=0) return false;
+  let ini=fimToken; while(ini>0 && !/\s/.test(t[ini-1])) ini--;
+  const token=t.slice(ini,fimToken); if(!token || (ini>0 && t[ini-1]==="@")) return false;
+  const url=_limpaFimUrl(token);
+  _URL_RE.lastIndex=0; const m=_URL_RE.exec(url); _URL_RE.lastIndex=0;
+  if(!m || m.index!==0 || m[0].length!==url.length || url.includes("@")) return false;
+  const r=document.createRange(); r.setStart(node,ini); r.setEnd(node,ini+url.length);
+  const a=document.createElement("a"); a.href=_hrefDe(url); a.target="_blank"; a.rel="noopener noreferrer";
+  r.surroundContents(a);
+  const depois=a.nextSibling; if(depois && depois.nodeType===3){
+    const pos=Math.min(depois.nodeValue.length, off-(ini+url.length));
+    const c=document.createRange(); c.setStart(depois,pos); c.collapse(true); sel.removeAllRanges(); sel.addRange(c);
+  }
+  return true;
+}
+document.addEventListener("input",e=>{
+  const ed=e.target && e.target.closest ? e.target.closest(_RTE_SEL) : null; if(!ed) return;
+  let mudou=false;
+  if(e.inputType==="insertText" && /\s/.test(e.data||"")) mudou=_linkifyAntesDoCursor(ed);
+  else if(e.inputType==="insertParagraph" || e.inputType==="insertFromPaste" || e.inputType==="insertLineBreak"){
+    const sel=window.getSelection(); mudou=linkifyEl(ed, sel.rangeCount?sel.anchorNode:null);
+  }
+  if(mudou) ed.dispatchEvent(new Event("input",{bubbles:true})); // salva com o link
+});
+/* Ctrl+clique abre o link direto */
+document.addEventListener("click",e=>{
+  const a=e.target.closest && e.target.closest("a"); if(!a) return;
+  const ed=a.closest(_RTE_SEL); if(!ed) return;
+  if(e.ctrlKey||e.metaKey){ e.preventDefault(); window.open(a.href,"_blank","noopener"); }
+});
+
+/* ===== Botãozinho flutuante: "Abrir link" / "Copiar código" ===== */
+let _chip=null;
+function _chipEl(){
+  if(!_chip){ _chip=document.createElement("div"); _chip.className="kh-chip"; document.body.appendChild(_chip);
+    _chip.addEventListener("mousedown",e=>e.preventDefault()); _chip.addEventListener("pointerdown",e=>e.preventDefault()); }
+  return _chip;
+}
+function _esconderChip(){ if(_chip) _chip.classList.remove("show"); }
+function atualizarChip(){
+  const sel=window.getSelection(); const n=sel && sel.rangeCount ? sel.anchorNode : null;
+  const base=n && (n.nodeType===1?n:n.parentElement);
+  const ed=base && base.closest ? base.closest(_RTE_SEL) : null;
+  if(!ed){ _esconderChip(); return; }
+  const a=base.closest("a"), pre=base.closest("pre");
+  const chip=_chipEl();
+  if(a && ed.contains(a)){
+    chip.innerHTML=`<button title="Abrir em nova aba">↗ Abrir link</button>`;
+    chip.firstChild.onclick=()=>{ window.open(a.href,"_blank","noopener"); _esconderChip(); };
+    const r=a.getBoundingClientRect(); chip.classList.add("show");
+    chip.style.left=Math.max(8,Math.min(r.left, window.innerWidth-chip.offsetWidth-8))+"px";
+    chip.style.top=Math.min(window.innerHeight-50, r.bottom+6)+"px";
+  } else if(pre && ed.contains(pre)){
+    chip.innerHTML=`<button title="Copiar o conteúdo do bloco">📋 Copiar</button><button title="Sair do bloco de código">↵ Sair do bloco</button>`;
+    chip.children[0].onclick=async()=>{
+      const txt=pre.innerText.replace(/\n$/,"");
+      try{ await navigator.clipboard.writeText(txt); toast("Código copiado ✓"); }
+      catch(err){ const ta=document.createElement("textarea"); ta.value=txt; document.body.appendChild(ta); ta.select(); try{document.execCommand("copy"); toast("Código copiado ✓");}catch(e2){ toast("Não consegui copiar."); } ta.remove(); }
+    };
+    chip.children[1].onclick=()=>{ _sairDoBloco(pre); _esconderChip(); };
+    const r=pre.getBoundingClientRect(); chip.classList.add("show");
+    chip.style.left=Math.max(8, r.right-chip.offsetWidth-6)+"px";
+    chip.style.top=Math.max(8, r.top-chip.offsetHeight-4)+"px";
+  } else _esconderChip();
+}
+document.addEventListener("selectionchange",()=>{ clearTimeout(window._chipT); window._chipT=setTimeout(atualizarChip,60); });
+document.addEventListener("scroll",()=>{ if(_chip && _chip.classList.contains("show")) atualizarChip(); },true);
+
+/* ===== Bloco de código ===== */
+function rteCodigo(){
+  const el=rteFocus(); if(!el) return;
+  const sel=window.getSelection(); const n=sel.rangeCount?sel.anchorNode:null; const base=n&&(n.nodeType===1?n:n.parentElement);
+  const pre=base && base.closest ? base.closest("pre") : null;
+  if(pre && el.contains(pre)) document.execCommand("formatBlock",false,"<p>");   // clicar de novo desfaz o bloco
+  else document.execCommand("formatBlock",false,"<pre>");
+  rteAfter(); setTimeout(atualizarChip,30);
+}
+function _sairDoBloco(pre){
+  const ed=pre.closest(_RTE_SEL); if(!ed) return;
+  // remove a última linha vazia do bloco
+  // remove as quebras de linha vazias do fim do bloco
+  let last=pre.lastChild;
+  while(last && pre.childNodes.length>1 && (last.nodeName==="BR" || (last.nodeType===3 && !last.nodeValue.replace(/\n/g,"").length))){ last.remove(); last=pre.lastChild; }
+  if(last && last.nodeType===3) last.nodeValue=last.nodeValue.replace(/\n+$/,"");
+  let p=pre.nextElementSibling;
+  if(!p || p.nodeName==="PRE"){ p=document.createElement(ed.id==="liveNotes"?"div":"p"); p.innerHTML="<br>"; pre.after(p); }
+  ed.focus(); const r=document.createRange(); r.setStart(p,0); r.collapse(true);
+  const sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  ed.dispatchEvent(new Event("input",{bubbles:true}));
+}
+/* Dentro do bloco de código: Enter = nova linha no MESMO bloco.
+   Enter numa linha vazia no fim do bloco = sai do bloco (como no Notion). Shift+Enter não muda. */
+document.addEventListener("keydown",e=>{
+  if(e.key!=="Enter" || e.shiftKey || e.isComposing) return;
+  const sel=window.getSelection(); if(!sel.rangeCount || !sel.isCollapsed) return;
+  const n=sel.anchorNode; const base=n&&(n.nodeType===1?n:n.parentElement);
+  const pre=base && base.closest ? base.closest("pre") : null; if(!pre || !pre.closest(_RTE_SEL)) return;
+  e.preventDefault();
+  const resto=document.createRange(); resto.setStart(sel.anchorNode, sel.anchorOffset); resto.setEnd(pre, pre.childNodes.length);
+  const noFim = resto.toString().replace(/\n/g,"")==="";
+  const antes=document.createRange(); antes.setStart(pre,0); antes.setEnd(sel.anchorNode, sel.anchorOffset);
+  const ta=antes.toString();
+  // último pedaço "de verdade" antes do cursor (ignora textos vazios)
+  const frag=antes.cloneContents(); const w=document.createTreeWalker(frag, NodeFilter.SHOW_ALL); let folha=null, x;
+  while((x=w.nextNode())){ if(x.nodeName==="BR" || (x.nodeType===3 && x.nodeValue.length)) folha=x; }
+  const linhaVazia = ta==="" || /\n$/.test(ta) || (folha && folha.nodeName==="BR");
+  if(noFim && linhaVazia && pre.textContent.trim()){ _sairDoBloco(pre); return; }
+  document.execCommand("insertLineBreak");
+});
+/* ===== Trecho selecionado → flashcard ===== */
+let _fcNomeSug="Estudos", _ultimoDeck=null;
+function rteFlashcard(){
+  rteFocus();
+  const sel=window.getSelection(); const txt=sel && sel.rangeCount ? sel.toString().trim() : "";
+  if(!txt){ toast("Selecione o trecho que vai virar flashcard."); return; }
+  const s = store.view==="studies" ? store.studies.find(x=>x.id===store.activeStudy) : null;
+  const n = store.view==="notes" ? store.notes.find(x=>x.id===store.activeNote) : null;
+  _fcNomeSug = s ? studyTitle(s) : (n ? (n.title||"Notas") : "Estudos");
+  const decks=store.decks||[];
+  const mesmoNome=decks.find(d=>(d.name||"").toLowerCase()===_fcNomeSug.toLowerCase());
+  const pre = mesmoNome ? mesmoNome.id : (_ultimoDeck && decks.some(d=>d.id===_ultimoDeck) ? _ultimoDeck : "__novo");
+  document.getElementById("modalBox").innerHTML=`
+    <h2>🃏 Novo flashcard</h2>
+    <div class="label-sm">Baralho</div>
+    <select class="field" id="fcDeck">
+      ${decks.map(d=>`<option value="${d.id}" ${d.id===pre?"selected":""}>${escapeHtml(d.name)}</option>`).join("")}
+      ${mesmoNome?"":`<option value="__novo" ${pre==="__novo"?"selected":""}>+ Novo baralho: ${escapeHtml(_fcNomeSug)}</option>`}
+    </select>
+    <div class="label-sm">Frente (pergunta)</div>
+    <textarea class="field" id="fcFront" style="min-height:64px" placeholder="Escreva a pergunta que esse trecho responde…"></textarea>
+    <div class="label-sm">Verso (resposta) — veio do trecho selecionado</div>
+    <textarea class="field" id="fcBack" style="min-height:90px">${escapeHtml(txt)}</textarea>
+    <div class="row" style="justify-content:flex-end;margin-top:12px">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-accent" onclick="salvarFlashcardTrecho()">Salvar flashcard</button>
+    </div>`;
+  document.getElementById("modalOverlay").classList.add("show");
+  setTimeout(()=>document.getElementById("fcFront")?.focus(),40);
+}
+function salvarFlashcardTrecho(){
+  const front=document.getElementById("fcFront").value.trim();
+  const back=document.getElementById("fcBack").value.trim();
+  let deckId=document.getElementById("fcDeck").value;
+  if(!front||!back){ toast("Preencha a pergunta e a resposta."); return; }
+  if(!store.decks) store.decks=[]; if(!store.cards) store.cards=[];
+  if(deckId==="__novo"){ deckId=uid(); store.decks.push({id:deckId,name:_fcNomeSug,at:Date.now()}); }
+  store.cards.push({id:uid(),deck:deckId,front,back,ease:2.5,interval:0,reps:0,due:Date.now(),at:Date.now(),
+    src: store.view==="studies" ? store.activeStudy : (store.activeNote||null)});
+  _ultimoDeck=deckId; persist(); closeModal();
+  const d=store.decks.find(x=>x.id===deckId);
+  toast("Flashcard salvo em “"+(d?d.name:"baralho")+"” ✓");
+}
+
 function rteLink(){ askInput({title:"Inserir link", label:"URL do link:", value:"https://", ph:"https://…", okLabel:"Inserir",
   onOk:(url)=>{ if(url) rte("createLink",url); }}); }
 function updateRteState(){
@@ -3969,8 +4272,77 @@ function buildPalette(q){ q=q.toLowerCase();
   ];
   Object.keys(BIBLE).forEach(b=>cmds.push({label:`Abrir ${b}`,run:()=>{store.view="bible";store.bible.book=b;store.bible.chapter=0;render();}}));
   const f=cmds.filter(c=>c.label.toLowerCase().includes(q));
-  pRes.innerHTML=f.map((c,i)=>`<div class="res" data-i="${i}">${c.label}</div>`).join("");
-  [...pRes.children].forEach((el,i)=>el.onclick=()=>{ f[i].run(); closePalette(); });
+  const termo=q.trim();
+  const achados=buscarConteudo(termo);
+  let html=f.map((c,i)=>`<div class="res" data-c="${i}">${c.label}</div>`).join("");
+  if(achados.length){
+    html+=`<div class="res-head">Nos seus estudos e notas (${achados.length})</div>`+achados.map((r,i)=>`
+      <div class="res" data-r="${i}"><div><b>${r.icon} ${escapeHtml(r.titulo)}</b> <span class="sub">· ${r.onde}</span></div>
+      <div class="res-trecho">${escapeHtml(r.trecho.antes)}<mark>${escapeHtml(r.trecho.achado)}</mark>${escapeHtml(r.trecho.depois)}</div></div>`).join("");
+  } else if(termo.length>=2 && !f.length){ html+=`<div class="res sub">Nada encontrado para “${escapeHtml(termo)}”.</div>`; }
+  pRes.innerHTML=html;
+  pRes.querySelectorAll("[data-c]").forEach(el=>el.onclick=()=>{ f[+el.dataset.c].run(); closePalette(); });
+  pRes.querySelectorAll("[data-r]").forEach(el=>el.onclick=()=>{ const r=achados[+el.dataset.r]; closePalette(); abrirResultadoBusca(r,termo); });
+}
+function _txt(html){ if(!html) return ""; const d=document.createElement("div"); d.innerHTML=html; return (d.innerText||d.textContent||""); }
+function _trecho(t,i,len){
+  const a=Math.max(0,i-45), b=Math.min(t.length,i+len+70);
+  const limpa=x=>x.replace(/\s+/g," ");
+  return { antes:(a>0?"…":"")+limpa(t.slice(a,i)), achado:t.slice(i,i+len), depois:limpa(t.slice(i+len,b))+(b<t.length?"…":"") };
+}
+function buscarConteudo(q){
+  if(!q || q.length<2) return [];
+  const ql=q.toLowerCase(), res=[];
+  (store.studies||[]).forEach(s=>{
+    const T=STUDY_TYPES[s.type]||{name:"Estudo",icon:"📚",fields:[]};
+    const ehAula=(s.type==="lecture"||s.type==="course");
+    const partes=[
+      ["título", (T.fields||[]).map(fl=>s[fl.k]||"").join(" · ")],
+      ["anotações", ehAula ? (s.liveNotes||"") : _txt(s.html)],
+      [ehAula?"transcrição":"conteúdo", ehAula ? _txt(s.html) : ""],
+      ["dados interessantes", s.notesField||""],
+      ["links", s.links||""]
+    ];
+    for(const [onde,t] of partes){
+      const i=t.toLowerCase().indexOf(ql);
+      if(i>=0){ res.push({tipo:"study", id:s.id, titulo:studyTitle(s), icon:T.icon||"📚", onde, trecho:_trecho(t,i,q.length)}); break; }
+    }
+  });
+  (store.notes||[]).forEach(n=>{
+    const t=(n.title||"")+"\n"+(n.html?_txt(n.html):(n.content||""));
+    const i=t.toLowerCase().indexOf(ql);
+    if(i>=0) res.push({tipo:"note", id:n.id, titulo:n.title||"Sem título", icon:"🗒️", onde:"nota", trecho:_trecho(t,i,q.length)});
+  });
+  return res.slice(0,40);
+}
+function abrirResultadoBusca(r,termo){
+  if(r.tipo==="study"){ go("studies"); openStudy(r.id); }
+  else { go("notes"); openNote(r.id); }
+  setTimeout(()=>{
+    if(!destacarNoEditor(termo)){
+      if(r.onde==="transcrição") toast("O termo está na transcrição desta aula/palestra.");
+      else if(r.onde!=="anotações" && r.onde!=="nota" && r.onde!=="conteúdo") toast("Encontrado em: "+r.onde+" (painel de dados).");
+    }
+  },150);
+}
+/* seleciona e rola até o termo no editor visível */
+function destacarNoEditor(termo){
+  if(!termo) return false;
+  const eds=[...document.querySelectorAll(_RTE_SEL)].filter(e=>e.offsetParent!==null);
+  const tl=termo.toLowerCase();
+  for(const ed of eds){
+    const w=document.createTreeWalker(ed,NodeFilter.SHOW_TEXT); let n;
+    while((n=w.nextNode())){
+      const i=n.nodeValue.toLowerCase().indexOf(tl);
+      if(i>=0){
+        const r=document.createRange(); r.setStart(n,i); r.setEnd(n,i+termo.length);
+        ed.focus(); const sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        n.parentElement.scrollIntoView({block:"center",behavior:"smooth"});
+        return true;
+      }
+    }
+  }
+  return false;
 }
 function toggleTheme(){ const c=document.documentElement.getAttribute("data-theme")==="light"?"":"light"; document.documentElement.setAttribute("data-theme",c); }
 
